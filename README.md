@@ -17,19 +17,15 @@ No server, no API key, nothing leaves your machine.
 - **Model picker** — switch models, paste a custom GGUF URL, tune temperature / max tokens / context.
   First load downloads the GGUF and **caches it in the browser (OPFS)** so it's instant next time.
 
-## Models
+## Model
 
-| Model | Arch | Status |
-|---|---|---|
-| **Qwen3.5-2B** (default) | dense | ✅ verified on the WebGPU backend |
-| Qwen3-0.6B | dense | ✅ verified, tiny & fast |
-| Gemma-3 270M | dense | ✅ verified, loads in seconds |
-| **Soyuz Qwen3.5-4B** | hybrid linear-attn (`qwen3next`) | ⚠️ experimental |
+The Pi Agent runs the **real Soyuz brain**: `AlexWortega/qwen35-4b-soyuz-merged-gguf`
+(`qwen35-4b-soyuz-merged.nomtp.Q4_K_M.gguf`, ~2.5 GB) — Qwen3.5-4B fine-tuned to emit
+self-contained web apps. It's a hybrid linear-attention model (`qwen3next` gguf arch), and the
+`@reeselevine/wllama-webgpu` build **ships that arch + its ops** (`gated_delta`, `linear_attn`,
+`ssm_scan`), so it loads and runs in-browser on your GPU.
 
-> The real Soyuz brain (`AlexWortega/qwen35-4b-soyuz-merged-gguf`) is a Qwen3.5 hybrid
-> linear-attention model. That arch is **not yet in the verified WebGPU set** — it may fail to load
-> if the WebGPU GGML backend lacks an op it needs. Try it; fall back to Qwen3.5-2B if it errors.
-> The default is Qwen3.5-2B so the app works out of the box.
+You can still paste any other GGUF URL in the model picker, but Soyuz is the default and only preset.
 
 ## Requirements
 

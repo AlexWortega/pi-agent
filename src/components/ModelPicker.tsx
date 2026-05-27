@@ -99,8 +99,8 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
               </button>
             </div>
             <p className="text-[10.5px] text-[var(--color-ink-faint)] mt-1.5">
-              Any GGUF a recent llama.cpp WebGPU build supports. Hybrid linear-attention archs
-              (incl. Soyuz) may not load yet.
+              Optional — load any other GGUF a recent llama.cpp WebGPU build supports. The default
+              is the Soyuz Pi Agent above.
             </p>
           </div>
         </div>
