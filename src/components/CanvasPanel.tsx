@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Artifact } from "../types";
 import { Eye, Code, Download, External, Refresh, Copy, Check } from "./Icons";
 
@@ -6,6 +6,7 @@ interface Props {
   artifact: Artifact | null;
   artifacts: Artifact[];
   view: "preview" | "code";
+  generating: boolean;
   onView: (v: "preview" | "code") => void;
   onSelect: (id: string) => void;
 }
@@ -20,9 +21,44 @@ function slug(s: string) {
   );
 }
 
-export function CanvasPanel({ artifact, artifacts, view, onView, onSelect }: Props) {
+export function CanvasPanel({ artifact, artifacts, view, generating, onView, onSelect }: Props) {
   const [reloadKey, setReloadKey] = useState(0);
   const [copied, setCopied] = useState(false);
+
+  // The iframe reloads whenever its srcDoc changes, which flickers hard if we
+  // feed it every streamed token. So throttle: refresh the preview at most once
+  // per ~900 ms while generating, and render the final HTML immediately once
+  // generation stops (or when switching artifacts).
+  const [rendered, setRendered] = useState(artifact?.html ?? "");
+  const lastRender = useRef(0);
+  const pending = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    if (!artifact) {
+      setRendered("");
+      return;
+    }
+    if (!generating) {
+      clearTimeout(pending.current);
+      lastRender.current = Date.now();
+      setRendered(artifact.html);
+      return;
+    }
+    const INTERVAL = 900;
+    const since = Date.now() - lastRender.current;
+    clearTimeout(pending.current);
+    if (since >= INTERVAL) {
+      lastRender.current = Date.now();
+      setRendered(artifact.html);
+    } else {
+      pending.current = setTimeout(() => {
+        lastRender.current = Date.now();
+        setRendered(artifact.html);
+      }, INTERVAL - since);
+    }
+    return () => clearTimeout(pending.current);
+    // reloadKey lets the manual reload button force a re-render
+  }, [artifact?.html, artifact?.id, generating, reloadKey]);
 
   const blobUrl = useMemo(() => {
     if (!artifact) return null;
@@ -111,7 +147,7 @@ export function CanvasPanel({ artifact, artifacts, view, onView, onSelect }: Pro
           <iframe
             key={reloadKey}
             title="preview"
-            srcDoc={artifact.html}
+            srcDoc={rendered}
             sandbox="allow-scripts allow-modals allow-forms allow-popups allow-pointer-lock"
             className="w-full h-full bg-white"
           />

@@ -285,6 +285,7 @@ export default function App() {
               artifact={shownArtifact}
               artifacts={artifacts}
               view={canvasView}
+              generating={generating}
               onView={setCanvasView}
               onSelect={setActiveArtifactId}
             />
