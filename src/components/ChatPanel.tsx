@@ -54,6 +54,7 @@ export function ChatPanel({ project, generating, eng, onSend, onStop, onOpenArti
               {msgs.map((m) => (
                 <Bubble key={m.id} m={m} project={project} onOpenArtifact={onOpenArtifact} />
               ))}
+              {generating && eng.phase === "loading" && <ModelLoading eng={eng} />}
               {generating && eng.phase === "ready" && <Typing />}
             </div>
           )}
@@ -120,6 +121,33 @@ function Welcome({ onPick }: { onPick: (t: string) => void }) {
             {s}
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ModelLoading({ eng }: { eng: EngineState }) {
+  const pct = Math.round(eng.progress * 100);
+  const mb = (b: number) => (b > 0 ? `${(b / 1024 / 1024).toFixed(0)} MB` : "");
+  return (
+    <div className="flex gap-2.5">
+      <div className="w-7 h-7 shrink-0 rounded-lg grid place-items-center bg-gradient-to-br from-[var(--color-soyuz)] to-[var(--color-pi)] mt-0.5">
+        <Satellite className="w-4 h-4 text-white" />
+      </div>
+      <div className="flex-1 min-w-0 max-w-sm">
+        <div className="text-[12.5px] text-[var(--color-ink-dim)] mb-1.5">
+          Загружаю модель Soyuz… первый раз качается (~2.5 GB), потом кэш в браузере.
+        </div>
+        <div className="h-1.5 rounded-full bg-[var(--color-panel-2)] overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-[var(--color-pi)] to-[var(--color-soyuz)] transition-[width] duration-200"
+            style={{ width: `${Math.max(3, pct)}%` }}
+          />
+        </div>
+        <div className="text-[10.5px] text-[var(--color-ink-faint)] mt-1">
+          {pct}% {mb(eng.loaded)}
+          {eng.total ? ` / ${mb(eng.total)}` : ""}
+        </div>
       </div>
     </div>
   );

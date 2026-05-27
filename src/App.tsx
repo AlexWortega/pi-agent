@@ -114,12 +114,9 @@ export default function App() {
     async (text: string) => {
       if (!text.trim() || generating || !active) return;
 
-      if (eng.phase !== "ready" || eng.modelId !== active.modelId) {
-        await loadModel(active.modelId);
-        // if load failed, bail
-        if (!engine.ready) return;
-      }
-
+      // 1) Show the user message + a pending assistant bubble right away, so a
+      //    click always produces visible feedback — even before the (large)
+      //    model download finishes.
       const userMsg: ChatMessage = {
         id: uid(),
         role: "user",
@@ -134,9 +131,35 @@ export default function App() {
         ts: Date.now(),
         pending: true,
       };
-
       const history = [...active.messages, userMsg];
       patchActive((p) => ({ ...p, messages: [...p.messages, userMsg, asstMsg] }));
+      setGenerating(true);
+
+      // 2) Ensure the Soyuz model is loaded (first use downloads ~2.5 GB).
+      if (eng.phase !== "ready" || eng.modelId !== active.modelId) {
+        try {
+          await loadModel(active.modelId);
+        } catch {
+          /* error surfaced below via engine.ready */
+        }
+        if (!engine.ready) {
+          patchActive((p) => ({
+            ...p,
+            messages: p.messages.map((m) =>
+              m.id === asstId
+                ? {
+                    ...m,
+                    pending: false,
+                    content:
+                      "⚠️ Не удалось загрузить модель Soyuz. Убедись, что браузер поддерживает WebGPU (Chrome / Edge / Safari), и нажми «Reload» сверху. Если повторяется — открой консоль (F12) и пришли текст ошибки.",
+                  }
+                : m,
+            ),
+          }));
+          setGenerating(false);
+          return;
+        }
+      }
 
       const wire = [
         { role: "system" as const, content: SYSTEM_PROMPT },
@@ -145,7 +168,6 @@ export default function App() {
 
       const ac = new AbortController();
       abortRef.current = ac;
-      setGenerating(true);
 
       const artId = "art-" + asstId;
       const applyChunk = (raw: string) => {
