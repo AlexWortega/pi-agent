@@ -47,6 +47,11 @@ npm run build        # → dist/
 npm run preview      # serve dist/ locally
 ```
 
+Deployed in two places (same static build):
+- **GitHub Pages:** https://alexwortega.github.io/pi-agent/ (auto on push to `main`)
+- **HF static Space:** https://huggingface.co/spaces/AlexWortega/pi-agent — redeploy with
+  `npm run deploy:hf` (builds + uploads `dist/` via `scripts/deploy_hf.py`; needs `hf auth login`).
+
 > **Cross-origin headers:** the dev/preview servers set `Cross-Origin-Opener-Policy: same-origin`
 > and `Cross-Origin-Embedder-Policy: require-corp` (needed for the multi-threaded WASM fallback /
 > `SharedArrayBuffer`). When you deploy the static `dist/`, set the **same two headers** on your
