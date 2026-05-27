@@ -1,10 +1,14 @@
 import express from "express";
 import pg from "pg";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const { Pool } = pg;
 
 const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL;
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
+const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 
 if (!DATABASE_URL) {
   console.error("FATAL: DATABASE_URL is not set");
@@ -102,6 +106,46 @@ app.patch("/api/log/:id", async (req, res) => {
     res.status(500).json({ error: "db error" });
   }
 });
+
+// ---- admin dashboard -------------------------------------------------------
+function requireAdmin(req, res, next) {
+  if (!ADMIN_TOKEN) {
+    return res.status(503).json({ error: "dashboard disabled: ADMIN_TOKEN not set" });
+  }
+  const auth = req.headers.authorization || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : String(req.query.token || "");
+  if (token !== ADMIN_TOKEN) return res.status(401).json({ error: "unauthorized" });
+  next();
+}
+
+app.get("/api/recent", requireAdmin, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const offset = parseInt(req.query.offset, 10) || 0;
+    const q = String(req.query.q || "").slice(0, 200);
+    const where = q ? "where prompt ilike $3 or response ilike $3" : "";
+    const params = q ? [limit, offset, `%${q}%`] : [limit, offset];
+    const { rows } = await pool.query(
+      `select id, client_id, project_name, model_id, prompt, response, has_artifact, created_at, updated_at
+         from requests ${where}
+        order by created_at desc limit $1 offset $2`,
+      params,
+    );
+    const { rows: s } = await pool.query(`
+      select count(*)::int total,
+             count(*) filter (where created_at > now() - interval '24 hours')::int today,
+             count(distinct client_id)::int users,
+             count(*) filter (where has_artifact)::int artifacts
+        from requests`);
+    res.json({ rows, stats: s[0] });
+  } catch (e) {
+    console.error("GET /api/recent", e);
+    res.status(500).json({ error: "db error" });
+  }
+});
+
+// Serve the dashboard (static). Data still requires the admin token above.
+app.use(express.static(publicDir));
 
 function str(v, n) {
   return typeof v === "string" ? v.slice(0, n) : null;
