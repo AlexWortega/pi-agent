@@ -92,7 +92,8 @@ export function ChatPanel({ project, generating, eng, onSend, onStop, onOpenArti
             )}
           </div>
           <div className="text-center text-[10.5px] text-[var(--color-ink-faint)] mt-2">
-            Runs entirely on your machine · ⏎ send · ⇧⏎ newline
+            Inference runs locally on your GPU · prompts are logged to improve Pi Agent · ⏎ send ·
+            ⇧⏎ newline
           </div>
         </div>
       </div>

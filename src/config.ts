@@ -7,6 +7,13 @@ export function ggufUrl(repo: string, file: string): string {
 }
 
 /**
+ * Logging API base (Railway). Public endpoint — fine to ship in the bundle.
+ * Override at build time with VITE_LOG_API; set to "" to disable logging.
+ */
+export const LOG_API: string =
+  import.meta.env.VITE_LOG_API ?? "https://api-production-bd22.up.railway.app";
+
+/**
  * The Pi Agent runs the real Soyuz model — Qwen3.5-4B (hybrid linear-attention,
  * qwen3next gguf arch). The @reeselevine/wllama-webgpu WebGPU build ships the
  * qwen3next arch + its ops (gated_delta / linear_attn / ssm_scan), so it loads

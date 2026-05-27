@@ -4,6 +4,7 @@ import { DEFAULT_PARAMS, SYSTEM_PROMPT } from "./config";
 import { loadProjects, saveProjects, newProject, uid } from "./lib/store";
 import { resolveModel } from "./lib/models";
 import { splitThink, extractHtmlArtifact } from "./lib/parse";
+import { logRequest, logResponse } from "./lib/logger";
 import { engine, hasWebGPU } from "./engine/llama";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
@@ -135,6 +136,13 @@ export default function App() {
       patchActive((p) => ({ ...p, messages: [...p.messages, userMsg, asstMsg] }));
       setGenerating(true);
 
+      // Log the request (fire-and-forget); keep the id to attach the answer later.
+      const logIdP = logRequest(userMsg.content, {
+        projectId: active.id,
+        projectName: active.name,
+        modelId: active.modelId,
+      });
+
       // 2) Ensure the Soyuz model is loaded (first use downloads ~2.5 GB).
       if (eng.phase !== "ready" || eng.modelId !== active.modelId) {
         try {
@@ -170,9 +178,13 @@ export default function App() {
       abortRef.current = ac;
 
       const artId = "art-" + asstId;
+      let finalAnswer = "";
+      let finalHasArtifact = false;
       const applyChunk = (raw: string) => {
         const { think, answer } = splitThink(raw);
         const parsed = extractHtmlArtifact(answer);
+        finalAnswer = answer;
+        finalHasArtifact = !!parsed;
         patchActive((p) => {
           const messages = p.messages.map((m) =>
             m.id === asstId ? { ...m, content: answer, think } : m,
@@ -219,6 +231,8 @@ export default function App() {
         }));
         setGenerating(false);
         abortRef.current = null;
+        // attach the final answer to the logged request
+        logIdP.then((id) => logResponse(id, finalAnswer, finalHasArtifact));
       }
     },
     [active, eng.phase, eng.modelId, generating, loadModel, params, patchActive],
