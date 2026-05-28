@@ -39,10 +39,11 @@ jobs:
         run: npm ci
       - name: Build Hermes
         working-directory: space_hermes
-        env:
-          # Provide the keenable.ai key via GitHub Secrets so it never lands in the repo.
-          # Falls back to "" → web_search uses DDG/Wikipedia fallbacks if the secret is unset.
-          VITE_KEENABLE_API_KEY: ${{ secrets.KEENABLE_API_KEY }}
+        # NO secret injection here on purpose: VITE_* vars get inlined into the
+        # public JS bundle at build time, which would leak the key to anyone who
+        # opens devtools. web_search falls back to DDG/Wikipedia by default;
+        # users who want full search BYO their key in the Tools panel (saved in
+        # their own localStorage only).
         run: npm run build
 
       - name: Mount Hermes under /hermes/
