@@ -77,6 +77,8 @@ export default function App() {
   const [activeArtifactId, setActiveArtifactId] = useState<string | null>(null);
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [clarify, setClarify] = useState<ClarifyRequest | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileView, setMobileView] = useState<"chat" | "canvas">("chat");
   const abortRef = useRef<AbortController | null>(null);
 
   const webgpu = useMemo(() => hasWebGPU(), []);
@@ -149,6 +151,7 @@ export default function App() {
       patchActive((p) => ({ ...p, artifacts: [...p.artifacts, { id, title, html, ts: Date.now() }] }));
       setActiveArtifactId(id);
       setCanvasView("preview");
+      setMobileView("canvas"); // on mobile, jump to canvas so the user sees the result
       return id;
     },
     [patchActive],
@@ -179,6 +182,7 @@ export default function App() {
     if (owner.id !== activeIdRef.current) setActiveId(owner.id);
     setActiveArtifactId(id);
     setCanvasView("preview");
+    setMobileView("canvas");
     return true;
   }, []);
 
@@ -426,19 +430,45 @@ export default function App() {
       <div className="aurora" />
       <div className="grain" />
       <div className="relative z-10 h-full flex">
-        <Sidebar
-          projects={projects}
-          activeId={activeId}
-          onSelect={(id) => {
-            setActiveId(id);
-            setActiveArtifactId(null);
-          }}
-          onCreate={createProject}
-          onDelete={deleteProject}
-          onRename={renameProject}
-          webgpu={webgpu}
-          onOpenPanel={setPanel}
-        />
+        {/* desktop sidebar */}
+        <div className="hidden md:flex w-64 shrink-0 h-full">
+          <Sidebar
+            projects={projects}
+            activeId={activeId}
+            onSelect={(id) => {
+              setActiveId(id);
+              setActiveArtifactId(null);
+            }}
+            onCreate={createProject}
+            onDelete={deleteProject}
+            onRename={renameProject}
+            webgpu={webgpu}
+            onOpenPanel={setPanel}
+          />
+        </div>
+
+        {/* mobile drawer */}
+        {sidebarOpen && (
+          <div className="md:hidden fixed inset-0 z-40">
+            <div className="absolute inset-0 bg-black/70" onClick={() => setSidebarOpen(false)} />
+            <div className="absolute inset-y-0 left-0 w-[78vw] max-w-[300px] z-50">
+              <Sidebar
+                projects={projects}
+                activeId={activeId}
+                onSelect={(id) => {
+                  setActiveId(id);
+                  setActiveArtifactId(null);
+                }}
+                onCreate={createProject}
+                onDelete={deleteProject}
+                onRename={renameProject}
+                webgpu={webgpu}
+                onOpenPanel={setPanel}
+                onClose={() => setSidebarOpen(false)}
+              />
+            </div>
+          </div>
+        )}
 
         <main className="flex-1 min-w-0 flex flex-col">
           <TopBar
@@ -447,6 +477,10 @@ export default function App() {
             webgpu={webgpu}
             onOpenPicker={() => setPickerOpen(true)}
             onReload={() => loadModel(active.modelId)}
+            onOpenSidebar={() => setSidebarOpen(true)}
+            mobileView={mobileView}
+            onMobileView={setMobileView}
+            hasCanvas={artifacts.length > 0}
           />
 
           <div className="flex-1 min-h-0 flex">
@@ -462,7 +496,9 @@ export default function App() {
               onOpenArtifact={(id) => {
                 setActiveArtifactId(id);
                 setCanvasView("preview");
+                setMobileView("canvas");
               }}
+              mobileHidden={mobileView === "canvas"}
             />
             <CanvasPanel
               artifact={shownArtifact}
@@ -471,6 +507,7 @@ export default function App() {
               generating={generating}
               onView={setCanvasView}
               onSelect={setActiveArtifactId}
+              mobileHidden={mobileView === "chat"}
             />
           </div>
         </main>

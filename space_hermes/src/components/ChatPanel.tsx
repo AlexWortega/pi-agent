@@ -18,6 +18,8 @@ interface Props {
   onSend: (text: string) => void;
   onStop: () => void;
   onOpenArtifact: (id: string) => void;
+  /** Hide on mobile when the user is viewing the canvas. */
+  mobileHidden?: boolean;
 }
 
 const SUGGESTIONS = [
@@ -27,7 +29,7 @@ const SUGGESTIONS = [
   "Run JS to find the 10th Fibonacci number",
 ];
 
-export function ChatPanel({ project, generating, eng, status, clarify, onSend, onStop, onOpenArtifact }: Props) {
+export function ChatPanel({ project, generating, eng, status, clarify, onSend, onStop, onOpenArtifact, mobileHidden }: Props) {
   const [text, setText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -63,7 +65,7 @@ export function ChatPanel({ project, generating, eng, status, clarify, onSend, o
   };
 
   return (
-    <section className="flex-1 min-w-0 flex flex-col border-r border-[var(--color-edge)]">
+    <section className={`${mobileHidden ? "hidden md:flex" : "flex"} flex-1 min-w-0 flex-col md:border-r md:border-[var(--color-edge)]`}>
       <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 py-6">
         <div className="max-w-2xl mx-auto">
           {msgs.length === 0 ? (

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { Project } from "../types";
 import type { PanelId } from "../lib/commands";
-import { Plus, Trash, Bot, Sparkles, Brain, ListTodo, Wrench, Clock } from "./Icons";
+import { Plus, Trash, Bot, Sparkles, Brain, ListTodo, Wrench, Clock, X } from "./Icons";
 
 interface Props {
   projects: Project[];
@@ -12,6 +12,8 @@ interface Props {
   onRename: (id: string, name: string) => void;
   webgpu: boolean;
   onOpenPanel: (p: PanelId) => void;
+  /** Mobile drawer mode — show a close button + auto-close on interactions. */
+  onClose?: () => void;
 }
 
 const NAV: { id: PanelId; label: string; icon: React.ReactNode }[] = [
@@ -22,12 +24,20 @@ const NAV: { id: PanelId; label: string; icon: React.ReactNode }[] = [
   { id: "schedules", label: "Schedules", icon: <Clock className="w-4 h-4" /> },
 ];
 
-export function Sidebar({ projects, activeId, onSelect, onCreate, onDelete, onRename, webgpu, onOpenPanel }: Props) {
+export function Sidebar({ projects, activeId, onSelect, onCreate, onDelete, onRename, webgpu, onOpenPanel, onClose }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
+  const pickPanel = (p: PanelId) => { onOpenPanel(p); onClose?.(); };
+  const pickSession = (id: string) => { onSelect(id); onClose?.(); };
+  const newSession = () => { onCreate(); onClose?.(); };
 
   return (
-    <aside className="w-64 shrink-0 h-full glass border-r border-[var(--color-edge)] flex flex-col">
-      <div className="px-4 pt-5 pb-4 border-b border-[var(--color-edge)]">
+    <aside className="w-full h-full glass border-r border-[var(--color-edge)] flex flex-col">
+      <div className="px-4 pt-5 pb-4 border-b border-[var(--color-edge)] relative">
+        {onClose && (
+          <button className="absolute top-3 right-3 btn btn-ghost p-2" onClick={onClose} aria-label="Close menu">
+            <X className="w-4 h-4" />
+          </button>
+        )}
         <h2 className="font-sans font-bold leading-[0.95] tracking-[0.04em] text-[28px] text-[var(--color-ink)]">
           HERMES
           <br />
@@ -48,7 +58,7 @@ export function Sidebar({ projects, activeId, onSelect, onCreate, onDelete, onRe
       </div>
 
       <div className="px-3 mt-3">
-        <button className="btn btn-primary w-full justify-center" onClick={onCreate}>
+        <button className="btn btn-primary w-full justify-center" onClick={newSession}>
           <Plus className="w-4 h-4" /> New session
         </button>
       </div>
@@ -58,7 +68,7 @@ export function Sidebar({ projects, activeId, onSelect, onCreate, onDelete, onRe
         <div className="label-faint px-1 mb-1.5">Panels</div>
         <div className="grid grid-cols-1 gap-0">
           {NAV.map((n) => (
-            <button key={n.id} className="nav-btn" onClick={() => onOpenPanel(n.id)}>
+            <button key={n.id} className="nav-btn" onClick={() => pickPanel(n.id)}>
               <span className="text-[var(--color-pi-2)]">{n.icon}</span>
               {n.label}
             </button>
@@ -73,7 +83,7 @@ export function Sidebar({ projects, activeId, onSelect, onCreate, onDelete, onRe
           return (
             <div
               key={p.id}
-              onClick={() => onSelect(p.id)}
+              onClick={() => pickSession(p.id)}
               className={`group rounded-lg px-2.5 py-2 cursor-pointer transition border ${
                 isActive ? "bg-[var(--color-panel-2)] border-[var(--color-edge-2)]" : "border-transparent hover:bg-[var(--color-panel-2)]/60"
               }`}

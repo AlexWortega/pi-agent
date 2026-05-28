@@ -9,6 +9,8 @@ interface Props {
   generating: boolean;
   onView: (v: "preview" | "code") => void;
   onSelect: (id: string) => void;
+  /** Hide on mobile when the user is viewing the chat. */
+  mobileHidden?: boolean;
 }
 
 function slug(s: string) {
@@ -21,7 +23,7 @@ function slug(s: string) {
   );
 }
 
-export function CanvasPanel({ artifact, artifacts, view, generating, onView, onSelect }: Props) {
+export function CanvasPanel({ artifact, artifacts, view, generating, onView, onSelect, mobileHidden }: Props) {
   const [reloadKey, setReloadKey] = useState(0);
   const [copied, setCopied] = useState(false);
 
@@ -82,7 +84,9 @@ export function CanvasPanel({ artifact, artifacts, view, generating, onView, onS
   };
 
   return (
-    <section className="w-[46%] min-w-[360px] max-w-[760px] shrink-0 flex flex-col bg-[var(--color-void)]">
+    <section
+      className={`${mobileHidden ? "hidden md:flex" : "flex"} flex-1 md:flex-none md:w-[46%] md:min-w-[360px] md:max-w-[760px] md:shrink-0 flex-col bg-[var(--color-void)]`}
+    >
       <div className="h-12 shrink-0 px-3 flex items-center gap-2 border-b border-[var(--color-edge)]">
         <div className="flex items-center rounded-lg border border-[var(--color-edge)] p-0.5 bg-[var(--color-panel-2)]/50">
           <Tab active={view === "preview"} onClick={() => onView("preview")}>
