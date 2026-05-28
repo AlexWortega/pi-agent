@@ -23,8 +23,33 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run build
+          cache-dependency-path: |
+            package-lock.json
+            space_hermes/package-lock.json
+
+      # Pi Agent (root) — served at /pi-agent/
+      - name: Install Pi Agent deps
+        run: npm ci
+      - name: Build Pi Agent
+        run: npm run build
+
+      # Hermes Agent (space_hermes/) — served at /pi-agent/hermes/
+      - name: Install Hermes deps
+        working-directory: space_hermes
+        run: npm ci
+      - name: Build Hermes
+        working-directory: space_hermes
+        env:
+          # Provide the keenable.ai key via GitHub Secrets so it never lands in the repo.
+          # Falls back to "" → web_search uses DDG/Wikipedia fallbacks if the secret is unset.
+          VITE_KEENABLE_API_KEY: ${{ secrets.KEENABLE_API_KEY }}
+        run: npm run build
+
+      - name: Mount Hermes under /hermes/
+        run: |
+          mkdir -p dist/hermes
+          cp -R space_hermes/dist/. dist/hermes/
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
