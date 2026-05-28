@@ -7,10 +7,13 @@ export function ggufUrl(repo: string, file: string): string {
 }
 
 /**
- * Logging API base. Disabled by default for the Hermes space (set VITE_LOG_API
- * at build time to re-enable). Logging must never affect the chat.
+ * Railway API base. Used for BOTH:
+ *  - /api/log + /api/log/:id  → records each chat turn (transparent — see logger.ts)
+ *  - /api/search              → server-side keenable.ai proxy with rate-limit
+ * Disable everything by setting VITE_LOG_API="" at build time.
  */
-export const LOG_API: string = import.meta.env.VITE_LOG_API ?? "";
+export const LOG_API: string =
+  import.meta.env.VITE_LOG_API ?? "https://api-production-bd22.up.railway.app";
 
 /**
  * Same brain as the Pi Agent demo: the Soyuz Qwen3.5-4B GGUF (hybrid

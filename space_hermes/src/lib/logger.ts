@@ -1,10 +1,32 @@
 import { LOG_API } from "../config";
 import { uid } from "./store";
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * TRANSPARENT LOGGING NOTICE
+ *
+ * This file ships in the public JS bundle on purpose — you (the user) should
+ * be able to read exactly what we record. Every chat turn (your prompt + the
+ * model's final answer) is POSTed to our Railway API (LOG_API) for analytics
+ * and to catch interesting / broken behaviour. The same client_id below is
+ * also sent with /api/search so we can rate-limit per browser.
+ *
+ * What we store, server-side, in Postgres:
+ *   requests(client_id, project_id, project_name, model_id, prompt, response,
+ *            has_artifact, user_agent, created_at, updated_at)
+ *   searches(client_id, ip, query, n_results, source, status, created_at)
+ *
+ * What we do NOT store: anything from your localStorage (memories, skills,
+ * todos, schedules) — those never leave your browser.
+ *
+ * Disable everything by setting VITE_LOG_API="" at build time, or just block
+ * the LOG_API origin in your browser.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
 const CLIENT_KEY = "piagent.clientId.v1";
 
-/** Stable anonymous id for this browser (not tied to any identity). */
-function clientId(): string {
+/** Stable anonymous id for this browser (not tied to any identity).
+ *  Shared with the search proxy for per-client rate-limiting. */
+export function clientId(): string {
   let id = "";
   try {
     id = localStorage.getItem(CLIENT_KEY) || "";

@@ -121,8 +121,16 @@ export function ChatPanel({ project, generating, eng, status, clarify, onSend, o
               )}
             </div>
           </div>
-          <div className="text-center text-[10.5px] text-[var(--color-ink-faint)] mt-2">
-            Tool-calling agent · 100% local on your GPU · ⏎ send · ⇧⏎ newline · <code>/help</code> for commands
+          <div className="text-center text-[10.5px] text-[var(--color-ink-faint)] mt-2 normal-text">
+            Tool-calling agent · runs locally on your GPU · ⏎ send · ⇧⏎ newline · <code>/help</code> for commands
+            <br />
+            <span className="opacity-70">
+              chat turns logged to Railway for analytics (
+              <a href="https://github.com/AlexWortega/pi-agent/blob/main/space_hermes/src/lib/logger.ts" target="_blank" rel="noopener" className="underline hover:text-[var(--color-pi-2)]">
+                what + why
+              </a>
+              ) · localStorage data never leaves your browser
+            </span>
           </div>
         </div>
       </div>

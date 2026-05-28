@@ -5,6 +5,9 @@ import { loadProjects, saveProjects, newProject, uid } from "./lib/store";
 import { resolveModel } from "./lib/models";
 import { extractHtmlArtifact } from "./lib/parse";
 import { engine, hasWebGPU } from "./engine/llama";
+// NOTE: we send every chat turn (prompt + final answer) to the Railway API.
+// See src/lib/logger.ts for the full disclosure block + schema.
+import { logRequest, logResponse } from "./lib/logger";
 import { runAgent } from "./agent/loop";
 import type { AgentCallbacks } from "./agent/loop";
 import { enabledTools, toolsSystemBlock } from "./agent/registry";
@@ -275,6 +278,14 @@ export default function App() {
       setGenerating(true);
       setStatus(null);
 
+      // Fire-and-forget: log this prompt to Railway (see lib/logger.ts header).
+      // The returned id is used to PATCH the assistant's final answer later.
+      const logIdP = logRequest(trimmed, {
+        projectId: active.id,
+        projectName: active.name,
+        modelId: active.modelId,
+      });
+
       // ensure the model is loaded (first use downloads ~2.5 GB)
       if (eng.phase !== "ready" || eng.modelId !== active.modelId) {
         await loadModel(active.modelId).catch(() => {});
@@ -387,8 +398,10 @@ export default function App() {
         },
       };
 
+      let finalAnswer = "";
+      let finalHasArtifact = false;
       try {
-        await runAgent({
+        finalAnswer = await runAgent({
           wire,
           tools,
           ctx,
@@ -399,11 +412,16 @@ export default function App() {
       } catch (e: any) {
         if (!ac.signal.aborted) addInfo(`⚠️ ${String(e?.message || e)}`);
       } finally {
-        patchActive((p) => ({ ...p, messages: p.messages.map((m) => (m.id.startsWith(base) ? { ...m, pending: false } : m)) }));
+        patchActive((p) => {
+          finalHasArtifact = p.artifacts.some((a) => a.id.startsWith("art-m" + base.slice(1)) || a.id.startsWith("art-" + base));
+          return { ...p, messages: p.messages.map((m) => (m.id.startsWith(base) ? { ...m, pending: false } : m)) };
+        });
         setGenerating(false);
         setStatus(null);
         setClarify(null);
         abortRef.current = null;
+        // attach the final answer to the logged request
+        logIdP.then((id) => logResponse(id, finalAnswer, finalHasArtifact));
       }
     },
     [active, eng.phase, eng.modelId, generating, loadModel, params, patchActive, emitArtifact],
