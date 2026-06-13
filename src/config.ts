@@ -14,6 +14,19 @@ export const LOG_API: string =
   import.meta.env.VITE_LOG_API ?? "https://api-production-bd22.up.railway.app";
 
 /**
+ * Optional DFlash llama-server endpoint (OpenAI-compatible). When set, the agent
+ * runs inference against this server — speculative decoding (DFlash) happens
+ * server-side — instead of the in-browser WebGPU model. Set with VITE_LLM_SERVER,
+ * e.g. "https://my-dflash-host". Empty (default) = in-browser wllama-webgpu.
+ *
+ * Run the server with the DFlash target+drafter:
+ *   llama-server -m Qwen3.5-4B-Q8_0.gguf -md Qwen3.5-4B-DFlash-f16.gguf --dflash \
+ *     --draft-max 16 -ngl 99 -ngld 99 -np 1 --host 0.0.0.0 --port 8080
+ */
+export const LLM_SERVER: string =
+  (import.meta.env.VITE_LLM_SERVER ?? "").replace(/\/+$/, "");
+
+/**
  * The Pi Agent runs the real Soyuz model — Qwen3.5-4B (hybrid linear-attention,
  * qwen3next gguf arch). The @reeselevine/wllama-webgpu WebGPU build ships the
  * qwen3next arch + its ops (gated_delta / linear_attn / ssm_scan), so it loads
@@ -22,11 +35,11 @@ export const LOG_API: string =
 export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "soyuz-4b",
-    label: "Soyuz Qwen3.5-4B",
-    repo: "AlexWortega/qwen35-4b-soyuz-merged-gguf",
-    file: "qwen35-4b-soyuz-merged.nomtp.Q4_K_M.gguf",
+    label: "Soyuz Qwen3.5-4B (vibeapps)",
+    repo: "AlexWortega/qwen35-4b-soyuz-vibeapps-merged",
+    file: "vibeapps.Q4_K_M.gguf",
     sizeLabel: "~2.5 GB",
-    note: "The real Pi Agent brain — Soyuz, fine-tuned for self-contained web apps.",
+    note: "Soyuz vibeapps checkpoint — fine-tuned for self-contained web apps.",
     verified: true,
     accent: "#ff7a45",
   },
@@ -40,7 +53,11 @@ When the user asks for a web app, page, game, tool, or any visual UI, output ONE
 Keep the thinking short so you have room for the code.`;
 
 export const DEFAULT_PARAMS: GenParams = {
-  temperature: 0.6,
-  maxTokens: 4096,
-  contextLength: 8192,
+  // Tuned against the real model on the headless rig: at temp 0.1 Soyuz
+  // deterministically does a short <think> then calls `write` with the full
+  // file as clean, valid JSON (temp 0.8 garbled the long JSON — "f xj nfr").
+  // maxTokens must be large enough to finish the file inside one write call.
+  temperature: 0.1,
+  maxTokens: 8192,
+  contextLength: 16384,
 };
