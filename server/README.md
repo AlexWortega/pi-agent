@@ -38,3 +38,19 @@ railway up -s api -c          # uploads this dir, builds via Nixpacks, deploys
 
 `DATABASE_URL` on the `api` service references `${{Postgres.DATABASE_URL}}` (private
 network, no SSL). Set `PGSSL=true` only if you point at the public host.
+
+### tracehouse logging (optional)
+
+Each completed trace (`PATCH /api/log/:id`) is mirrored to
+[tracehouse](https://tracehouse.ai) as a run — prompt/response/model in the run config,
+char counts as metrics. Best-effort and non-blocking: if tracehouse is down or the key
+is unset, request logging is unaffected. Set on the `api` service only (the key stays
+server-side, never in the frontend bundle):
+
+```bash
+railway variables -s api --set TRACEHOUSE_API_KEY=<your key>
+# optional, defaults to https://tracehouse.ai
+railway variables -s api --set TRACEHOUSE_API_BASE=https://tracehouse.ai
+```
+
+Leave `TRACEHOUSE_API_KEY` unset to disable.

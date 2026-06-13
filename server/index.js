@@ -2,6 +2,7 @@ import express from "express";
 import pg from "pg";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { logTrace, tracehouseEnabled } from "./tracehouse.js";
 
 const { Pool } = pg;
 
@@ -196,12 +197,34 @@ app.post("/api/log", async (req, res) => {
 app.patch("/api/log/:id", async (req, res) => {
   try {
     const { response, has_artifact } = req.body || {};
-    const { rowCount } = await pool.query(
-      `update requests set response = $1, has_artifact = $2, updated_at = now() where id = $3`,
+    const { rows } = await pool.query(
+      `update requests set response = $1, has_artifact = $2, updated_at = now() where id = $3
+       returning client_id, project_name, model_id, prompt`,
       [typeof response === "string" ? response.slice(0, 200000) : null, !!has_artifact, req.params.id],
     );
-    if (!rowCount) return res.status(404).json({ error: "not found" });
+    if (!rows.length) return res.status(404).json({ error: "not found" });
     res.json({ ok: true });
+
+    // best-effort: mirror the completed trace to tracehouse (key is server-side only).
+    // fire-and-forget — the response above already returned, so logging can't slow or
+    // break the request even if tracehouse is down.
+    if (tracehouseEnabled() && typeof response === "string") {
+      const row = rows[0];
+      const prompt = row.prompt || "";
+      logTrace({
+        project: row.project_name || "pi-agent",
+        name: `trace-${req.params.id}`,
+        clientRunId: `pi-agent-${req.params.id}`,
+        config: {
+          model_id: row.model_id,
+          client_id: row.client_id,
+          has_artifact: !!has_artifact,
+          prompt: prompt.slice(0, 4000),
+          response: response.slice(0, 8000),
+        },
+        metrics: { prompt_chars: prompt.length, response_chars: response.length },
+      }).catch(() => {});
+    }
   } catch (e) {
     console.error("PATCH /api/log", e);
     res.status(500).json({ error: "db error" });
