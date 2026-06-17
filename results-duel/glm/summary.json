@@ -1,0 +1,18 @@
+{
+  "model": "z-ai/glm-5.2",
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "stoppedReason": "assistant_idle",
+  "wallSec": 3923.98,
+  "nTurns": 274,
+  "nToolCalls": 16,
+  "experiments": 3,
+  "kept": 1,
+  "champion": {
+    "exp_id": "exp-0",
+    "val_bpb": 2.07803196,
+    "artifact_bytes": 7685068
+  },
+  "promptTokens": 934165,
+  "completionTokens": 29583,
+  "genTokPerSec": 26.3
+}

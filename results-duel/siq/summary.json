@@ -1,0 +1,18 @@
+{
+  "model": "siq",
+  "baseUrl": "http://216.81.151.15:19524/v1",
+  "stoppedReason": "deadline",
+  "wallSec": 7273.41,
+  "nTurns": 58,
+  "nToolCalls": 56,
+  "experiments": 12,
+  "kept": 4,
+  "champion": {
+    "exp_id": "exp-9",
+    "val_bpb": 1.76712211,
+    "artifact_bytes": 9724179
+  },
+  "promptTokens": 291696,
+  "completionTokens": 56357,
+  "genTokPerSec": 111.9
+}
