@@ -1,12 +1,21 @@
 import { Wllama } from "@reeselevine/wllama-webgpu";
 import WasmFromPackage from "@reeselevine/wllama-webgpu/esm/wasm-from-package.js";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, ReasoningEffort, RemoteModel } from "../types";
 
 import { LLM_SERVER } from "../config";
+import { clientId } from "../lib/logger";
 import { cutAtStop } from "./stops";
 
 export function hasWebGPU(): boolean {
   return typeof navigator !== "undefined" && !!(navigator as any).gpu;
+}
+
+/** What `load` is asked to make active: either an in-browser GGUF or a remote endpoint. */
+export interface LoadTarget {
+  /** GGUF url for the in-browser WebGPU path. */
+  url?: string;
+  /** OpenAI-compatible endpoint for the remote path. */
+  remote?: RemoteModel;
 }
 
 export interface LoadOpts {
@@ -19,6 +28,9 @@ export interface ChatOpts {
   maxTokens: number;
   signal?: AbortSignal;
   onToken: (fullText: string) => void;
+  /** Remote-only (SIQ-1): thinking mode + reasoning effort. */
+  thinking?: boolean;
+  effort?: ReasoningEffort;
 }
 
 /**
@@ -29,26 +41,55 @@ class LlamaEngine {
   private wllama: Wllama | null = null;
   loadedUrl: string | null = null;
   private loadedCtx: number | null = null;
+  /** When set, the active model runs against this OpenAI-compatible endpoint. */
+  private remote: RemoteModel | null = null;
   readonly backend: "webgpu" | "cpu" = hasWebGPU() ? "webgpu" : "cpu";
 
-  /** Server mode: inference runs against a DFlash llama-server instead of in-browser. */
-  readonly serverMode: boolean = !!LLM_SERVER;
+  /**
+   * The remote target for the *current* model, if any. An explicitly-selected
+   * remote model (e.g. SIQ-1) wins; otherwise a build-time VITE_LLM_SERVER
+   * (the DFlash llama-server dev path) applies to local models.
+   */
+  private activeRemote(): RemoteModel | null {
+    if (this.remote) return this.remote;
+    if (LLM_SERVER) return { endpoint: LLM_SERVER, model: "soyuz" };
+    return null;
+  }
+
+  /** True when the active model serves over the network rather than in-browser. */
+  get serverMode(): boolean {
+    return !!this.activeRemote();
+  }
 
   get ready(): boolean {
     return this.serverMode || (!!this.wllama && !!this.loadedUrl);
   }
 
   /**
-   * Download + load a GGUF. No-op if the same url is already loaded at the same
-   * context length; reloads (from cache) when the context length changes.
+   * Make a model active. Remote targets need no download — we just record the
+   * endpoint (and free any in-browser model holding GPU memory). GGUF targets
+   * download + load on WebGPU; a no-op if the same url is already loaded at the
+   * same context length; reloads (from cache) when the context length changes.
    */
-  async load(url: string, opts: LoadOpts): Promise<void> {
-    // server mode: nothing to download/load in the browser — the DFlash server holds the model
-    if (this.serverMode) {
+  async load(target: LoadTarget, opts: LoadOpts): Promise<void> {
+    // remote mode: nothing to download/load in the browser — the endpoint holds the model
+    if (target.remote) {
+      // drop any in-browser model so a 35B cloud model doesn't sit next to GPU weights
+      if (this.wllama) await this.unload();
+      this.remote = target.remote;
+      this.loadedUrl = `remote:${target.remote.endpoint}`;
+      opts.onProgress?.(1, 1, 1);
+      return;
+    }
+    // switching back to a local model: clear any explicit remote target
+    this.remote = null;
+    // build-time DFlash dev server still short-circuits local loads
+    if (this.activeRemote()) {
       this.loadedUrl = `server:${LLM_SERVER}`;
       opts.onProgress?.(1, 1, 1);
       return;
     }
+    const url = target.url!;
     if (this.loadedUrl === url && this.wllama && this.loadedCtx === opts.contextLength) return;
     // free any previous model first
     await this.unload();
@@ -86,7 +127,8 @@ class LlamaEngine {
 
   /** Run a streaming chat completion. Resolves with the final full text. */
   async chat(messages: Pick<ChatMessage, "role" | "content">[], opts: ChatOpts): Promise<string> {
-    if (this.serverMode) return this.chatViaServer(messages, opts);
+    const remote = this.activeRemote();
+    if (remote) return this.chatViaServer(remote, messages, opts);
     if (!this.wllama) throw new Error("No model loaded");
 
     const internal = new AbortController();
@@ -137,17 +179,33 @@ class LlamaEngine {
   }
 
   /**
-   * Stream a chat completion from a DFlash llama-server (OpenAI-compatible SSE).
-   * Speculative decoding runs server-side; the client just consumes the stream and
-   * applies the same stop-sequence cut as the in-browser path.
+   * Stream a chat completion from an OpenAI-compatible endpoint (SSE). Covers
+   * both the DFlash llama-server (speculative decoding server-side) and the
+   * SIQ-1 RunPod-serverless proxy. The client consumes the stream and applies
+   * the same stop-sequence cut as the in-browser path.
+   *
+   * For SIQ-1 (a reasoning model) the chain-of-thought may arrive in
+   * `delta.reasoning_content` (vLLM) rather than inline `<think>…</think>`
+   * (llama.cpp). We fold reasoning back into a single `<think>…</think>` prefix
+   * so the downstream parser (parseOutput) handles both backends identically.
    */
   private async chatViaServer(
+    remote: RemoteModel,
     messages: Pick<ChatMessage, "role" | "content">[],
     opts: ChatOpts,
   ): Promise<string> {
     let cut: string | null = null;
-    let full = "";
-    const onChunk = (text: string) => {
+    let reasoning = "";
+    let answer = "";
+
+    // Reconstruct one cumulative text, with separated reasoning wrapped in <think>.
+    const compose = () => {
+      if (!reasoning) return answer;
+      // close the think block once the answer has started; otherwise leave it open
+      return answer ? `<think>\n${reasoning}\n</think>\n${answer}` : `<think>\n${reasoning}`;
+    };
+    const emit = () => {
+      const text = compose();
       if (cut === null) {
         const truncated = cutAtStop(text);
         if (truncated !== null) cut = truncated;
@@ -155,25 +213,36 @@ class LlamaEngine {
       opts.onToken(cut ?? text);
     };
 
-    const res = await fetch(`${LLM_SERVER}/v1/chat/completions`, {
+    const thinking = remote.reasoning ? opts.thinking !== false : false;
+    const body: Record<string, unknown> = {
+      model: remote.model,
+      // stable per-browser id so the proxy can rate-limit per client (not just IP)
+      client_id: clientId(),
+      stream: true,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      temperature: opts.temperature,
+      max_tokens: opts.maxTokens,
+      top_p: thinking ? 0.95 : 0.9,
+      top_k: 40,
+      // greedy verify on the server engages when this is a deterministic sample;
+      // these match the in-browser sampling so output style is consistent.
+      repeat_penalty: 1.1,
+      presence_penalty: 0.4,
+    };
+    if (remote.reasoning) {
+      // SIQ-1 toggles thinking via the chat template; effort is injected as a
+      // system line by the proxy when thinking is on (see server/index.js).
+      body.chat_template_kwargs = { enable_thinking: thinking };
+      if (thinking && opts.effort) body.effort = opts.effort;
+    }
+
+    const res = await fetch(`${remote.endpoint}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: opts.signal,
-      body: JSON.stringify({
-        model: "soyuz",
-        stream: true,
-        messages: messages.map((m) => ({ role: m.role, content: m.content })),
-        temperature: opts.temperature,
-        max_tokens: opts.maxTokens,
-        top_p: 0.9,
-        top_k: 40,
-        // greedy verify on the server engages when this is a deterministic sample;
-        // these match the in-browser sampling so output style is consistent.
-        repeat_penalty: 1.1,
-        presence_penalty: 0.4,
-      }),
+      body: JSON.stringify(body),
     });
-    if (!res.ok || !res.body) throw new Error(`llama-server ${res.status} ${res.statusText}`);
+    if (!res.ok || !res.body) throw new Error(`inference endpoint ${res.status} ${res.statusText}`);
 
     const reader = res.body.getReader();
     const dec = new TextDecoder();
@@ -189,13 +258,14 @@ class LlamaEngine {
           const s = line.trim();
           if (!s.startsWith("data:")) continue;
           const data = s.slice(5).trim();
-          if (data === "[DONE]") return cut ?? full;
+          if (data === "[DONE]") return cut ?? compose();
           try {
-            const delta = JSON.parse(data)?.choices?.[0]?.delta?.content ?? "";
-            if (delta) {
-              full += delta;
-              onChunk(full);
-            }
+            const delta = JSON.parse(data)?.choices?.[0]?.delta ?? {};
+            const rc = delta.reasoning_content ?? "";
+            const c = delta.content ?? "";
+            if (rc) reasoning += rc;
+            if (c) answer += c;
+            if (rc || c) emit();
           } catch {
             /* partial JSON across chunk boundary — wait for more */
           }
@@ -207,10 +277,10 @@ class LlamaEngine {
       } catch {
         /* ignore */
       }
-      return cut ?? full;
+      return cut ?? compose();
     } catch (err) {
       if (cut !== null) return cut; // stopped by our stop-sequence
-      if ((err as { name?: string })?.name === "AbortError") return full; // user abort
+      if ((err as { name?: string })?.name === "AbortError") return compose(); // user abort
       throw err;
     }
   }

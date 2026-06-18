@@ -1,8 +1,10 @@
 import { useState } from "react";
-import type { GenParams } from "../types";
+import type { GenParams, ReasoningEffort } from "../types";
 import { MODEL_PRESETS } from "../config";
-import { customModelId } from "../lib/models";
-import { Chip, X, Check, Bolt } from "./Icons";
+import { customModelId, resolveModel } from "../lib/models";
+import { Chip, X, Check, Bolt, Satellite } from "./Icons";
+
+const EFFORTS: ReasoningEffort[] = ["low", "medium", "high"];
 
 interface Props {
   currentId: string;
@@ -16,6 +18,8 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
   const [customUrl, setCustomUrl] = useState(
     currentId.startsWith("url:") ? currentId.slice(4) : "",
   );
+  const current = resolveModel(currentId);
+  const showReasoning = !!current.remote?.reasoning;
 
   return (
     <div
@@ -30,7 +34,7 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
           <div>
             <h2 className="font-semibold text-[15px]">Model</h2>
             <p className="text-[11.5px] text-[var(--color-ink-faint)]">
-              Downloaded once, cached in your browser, runs on your GPU.
+              Local models download once and run on your GPU; cloud models run on RunPod — nothing to download.
             </p>
           </div>
           <button className="btn btn-ghost p-2" onClick={onClose}>
@@ -41,6 +45,7 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
         <div className="overflow-y-auto p-4 space-y-2">
           {MODEL_PRESETS.map((m) => {
             const selected = currentId === m.id;
+            const remote = !!m.remote;
             return (
               <button
                 key={m.id}
@@ -55,11 +60,16 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
                   className="w-9 h-9 shrink-0 rounded-lg grid place-items-center"
                   style={{ background: `color-mix(in oklab, ${m.accent} 22%, transparent)` }}
                 >
-                  <Chip className="w-4.5 h-4.5" />
+                  {remote ? <Satellite className="w-4.5 h-4.5" /> : <Chip className="w-4.5 h-4.5" />}
                 </span>
                 <span className="flex-1 min-w-0">
                   <span className="flex items-center gap-2">
                     <span className="text-[13.5px] font-medium">{m.label}</span>
+                    {remote && (
+                      <span className="text-[9px] px-1.5 py-px rounded-full bg-[var(--color-pi)]/15 text-[var(--color-pi-2)] border border-[var(--color-pi)]/30">
+                        cloud
+                      </span>
+                    )}
                     {m.verified ? (
                       <span className="text-[9px] px-1.5 py-px rounded-full bg-[var(--color-mint)]/15 text-[var(--color-mint)] border border-[var(--color-mint)]/30">
                         verified
@@ -107,6 +117,51 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
 
         {/* params */}
         <div className="px-5 py-4 border-t border-[var(--color-edge)] space-y-3">
+          {showReasoning && (
+            <div className="space-y-3 pb-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] text-[var(--color-ink-dim)]">
+                  Thinking
+                  <span className="text-[var(--color-ink-faint)]"> · emit &lt;think&gt; before answering</span>
+                </span>
+                <button
+                  role="switch"
+                  aria-checked={params.thinking !== false}
+                  onClick={() => onParams({ ...params, thinking: !(params.thinking !== false) })}
+                  className={`relative w-9 h-5 rounded-full transition ${
+                    params.thinking !== false ? "bg-[var(--color-pi)]" : "bg-[var(--color-panel-2)]"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${
+                      params.thinking !== false ? "left-[18px]" : "left-0.5"
+                    }`}
+                  />
+                </button>
+              </div>
+              <div className={params.thinking !== false ? "" : "opacity-40 pointer-events-none"}>
+                <div className="text-[12px] text-[var(--color-ink-dim)] mb-1.5">Reasoning effort</div>
+                <div className="flex gap-1.5">
+                  {EFFORTS.map((e) => {
+                    const on = (params.effort ?? "medium") === e;
+                    return (
+                      <button
+                        key={e}
+                        onClick={() => onParams({ ...params, effort: e })}
+                        className={`flex-1 rounded-lg border py-1.5 text-[12px] capitalize transition ${
+                          on
+                            ? "border-[var(--color-pi)] bg-[var(--color-pi)]/10 text-[var(--color-pi-2)]"
+                            : "border-[var(--color-edge)] hover:border-[var(--color-edge-2)] text-[var(--color-ink-dim)]"
+                        }`}
+                      >
+                        {e}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
           <Slider
             label="Temperature"
             value={params.temperature}

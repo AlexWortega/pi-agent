@@ -137,7 +137,7 @@ function ModelLoading({ eng }: { eng: EngineState }) {
       </div>
       <div className="flex-1 min-w-0 max-w-sm">
         <div className="text-[12.5px] text-[var(--color-ink-dim)] mb-1.5">
-          Загружаю модель Soyuz… первый раз качается (~2.5 GB), потом кэш в браузере.
+          Loading the Soyuz model… first run downloads it (~2.5 GB), then it's cached in your browser.
         </div>
         <div className="h-1.5 rounded-full bg-[var(--color-panel-2)] overflow-hidden">
           <div

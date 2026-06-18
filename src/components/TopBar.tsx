@@ -1,6 +1,7 @@
 import type { EngineState } from "../App";
 import type { ResolvedModel } from "../lib/models";
 import { Chip, Gear, Refresh, Bolt } from "./Icons";
+import { useStats, estimateModelBytes, formatBytes } from "../pi/stats";
 
 interface Props {
   model: ResolvedModel;
@@ -11,6 +12,58 @@ interface Props {
 }
 
 const fmtMB = (b: number) => (b > 0 ? `${(b / 1024 / 1024).toFixed(0)} MB` : "");
+
+function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+/** Live "model is working" readout: phase + ticking tokens + tok/s, then idle stats. */
+function ModelStats() {
+  const { tps, contextUsed, contextWindow, modelBytes, generating, liveTokens, phase } = useStats();
+  const mem = estimateModelBytes(modelBytes, contextWindow);
+  const pct = contextUsed && contextWindow ? Math.min(100, (contextUsed / contextWindow) * 100) : 0;
+
+  if (generating) {
+    // Animated, always-moving while the model works.
+    return (
+      <div className="hidden md:flex items-center gap-2 text-[10.5px] font-mono whitespace-nowrap text-[var(--color-pi-2)]">
+        <span className="flex items-center gap-1">
+          <span className="typing-dot" />
+          <span className="typing-dot" style={{ animationDelay: "0.15s" }} />
+          <span className="typing-dot" style={{ animationDelay: "0.3s" }} />
+        </span>
+        <span className="text-[var(--color-ink)]">{phase ?? "working"}…</span>
+        <span className="text-[var(--color-ink-faint)]">
+          {fmtTokens(liveTokens)} tok{tps ? ` · ${tps} tok/s` : ""}
+        </span>
+      </div>
+    );
+  }
+
+  const parts: string[] = [];
+  if (tps) parts.push(`${tps} tok/s`);
+  if (mem) parts.push(`~${formatBytes(mem)}`);
+  if (parts.length === 0 && !contextWindow) return null;
+
+  return (
+    <div className="hidden md:flex items-center gap-2 text-[10.5px] text-[var(--color-ink-faint)] font-mono whitespace-nowrap">
+      {parts.length > 0 && <span>{parts.join(" · ")}</span>}
+      {contextWindow ? (
+        <span className="flex items-center gap-1.5" title="Context window usage (estimated tokens)">
+          <span>
+            ctx {contextUsed ? fmtTokens(contextUsed) : "0"}/{fmtTokens(contextWindow)}
+          </span>
+          <span className="w-12 h-1 rounded-full bg-[var(--color-panel-2)] overflow-hidden">
+            <span
+              className="block h-full rounded-full bg-gradient-to-r from-[var(--color-pi)] to-[var(--color-soyuz)]"
+              style={{ width: `${Math.max(2, pct)}%` }}
+            />
+          </span>
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 export function TopBar({ model, eng, webgpu, onOpenPicker, onReload }: Props) {
   const isThis = eng.modelId === model.id;
@@ -44,6 +97,8 @@ export function TopBar({ model, eng, webgpu, onOpenPicker, onReload }: Props) {
         </span>
         <Gear className="w-3.5 h-3.5 text-[var(--color-ink-faint)] ml-1" />
       </button>
+
+      <ModelStats />
 
       {/* status pill */}
       <div className="flex-1 min-w-0">

@@ -3,3 +3,7 @@ dist
 .DS_Store
 *.log
 tsconfig.tsbuildinfo
+
+# local test models (huge, not for commit)
+models/*.gguf
+vibetest/

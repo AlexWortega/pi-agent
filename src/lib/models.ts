@@ -1,9 +1,13 @@
 import { MODEL_PRESETS, ggufUrl } from "../config";
+import type { RemoteModel } from "../types";
 
 export interface ResolvedModel {
   id: string;
   label: string;
+  /** GGUF download url — empty for remote models. */
   url: string;
+  /** When set, inference runs against this OpenAI-compatible endpoint. */
+  remote?: RemoteModel;
   accent: string;
   note: string;
   verified: boolean;
@@ -29,12 +33,18 @@ export function resolveModel(id: string): ResolvedModel {
   return {
     id: p.id,
     label: p.label,
-    url: ggufUrl(p.repo, p.file),
+    url: p.remote ? "" : ggufUrl(p.repo!, p.file!),
+    remote: p.remote,
     accent: p.accent || "#7c5cff",
     note: p.note,
     verified: p.verified,
     sizeLabel: p.sizeLabel,
   };
+}
+
+/** True when the model runs server-side (no WebGPU / download needed). */
+export function isRemote(m: ResolvedModel): boolean {
+  return !!m.remote;
 }
 
 export function customModelId(url: string): string {

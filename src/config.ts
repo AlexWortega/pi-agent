@@ -27,6 +27,21 @@ export const LLM_SERVER: string =
   (import.meta.env.VITE_LLM_SERVER ?? "").replace(/\/+$/, "");
 
 /**
+ * OpenAI-compatible base for the SIQ-1-35B RunPod serverless endpoint. The
+ * browser can't call RunPod directly (API key + CORS + async polling), so it
+ * talks to a streaming proxy that holds RUNPOD_API_KEY server-side and bridges
+ * to RunPod. `/v1/chat/completions` is appended by the engine.
+ *
+ * Default: the Railway server's /api/siq route (same host as LOG_API, already in
+ * the bundle). A mirror also runs as an HF Space (siq_proxy_space/, repo
+ * AlexWortega/siq-proxy) at https://alexwortega-siq-proxy.hf.space/api/siq —
+ * point VITE_SIQ_API there as a fallback if Railway is down.
+ */
+export const SIQ_API: string = (
+  import.meta.env.VITE_SIQ_API ?? (LOG_API ? `${LOG_API}/api/siq` : "https://alexwortega-siq-proxy.hf.space/api/siq")
+).replace(/\/+$/, "");
+
+/**
  * The Pi Agent runs the real Soyuz model — Qwen3.5-4B (hybrid linear-attention,
  * qwen3next gguf arch). The @reeselevine/wllama-webgpu WebGPU build ships the
  * qwen3next arch + its ops (gated_delta / linear_attn / ssm_scan), so it loads
@@ -39,9 +54,18 @@ export const MODEL_PRESETS: ModelPreset[] = [
     repo: "AlexWortega/qwen35-4b-soyuz-vibeapps-merged",
     file: "vibeapps.Q4_K_M.gguf",
     sizeLabel: "~2.5 GB",
-    note: "Soyuz vibeapps checkpoint — fine-tuned for self-contained web apps.",
+    note: "Soyuz vibeapps checkpoint — fine-tuned for self-contained web apps. Runs in your browser on WebGPU.",
     verified: true,
     accent: "#ff7a45",
+  },
+  {
+    id: "siq1-35b",
+    label: "SIQ-1-35B (cloud)",
+    remote: { endpoint: SIQ_API, model: "siq", reasoning: true },
+    sizeLabel: "cloud · 35B-A3B",
+    note: "Big reasoning model (Qwen3.6-35B-A3B MoE + Soyuz + RFT) served on RunPod serverless — nothing downloads, no WebGPU needed. Supports thinking + reasoning effort.",
+    verified: true,
+    accent: "#7c5cff",
   },
 ];
 
@@ -60,4 +84,8 @@ export const DEFAULT_PARAMS: GenParams = {
   temperature: 0.1,
   maxTokens: 8192,
   contextLength: 16384,
+  // Remote-only (SIQ-1): thinking on, medium effort — the sweet spot from the
+  // GPQA effort sweep (medium/high ≈ 79% on the 24-q slice). Ignored by local.
+  thinking: true,
+  effort: "medium",
 };

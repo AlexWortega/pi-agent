@@ -4,7 +4,7 @@ import { uid } from "./store";
 const CLIENT_KEY = "piagent.clientId.v1";
 
 /** Stable anonymous id for this browser (not tied to any identity). */
-function clientId(): string {
+export function clientId(): string {
   let id = "";
   try {
     id = localStorage.getItem(CLIENT_KEY) || "";

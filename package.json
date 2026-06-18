@@ -9,6 +9,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "deploy:hf": "npm run build && python3 scripts/deploy_hf.py",
+    "siq:deploy": "node scripts/runpod-siq-serverless.mjs",
     "duel:provision": "node scripts/runpod-duel-provision.mjs",
     "duel:setup": "bash scripts/duel-setup.sh",
     "duel:run": "bash scripts/duel-run.sh"

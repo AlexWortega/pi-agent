@@ -12,6 +12,18 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 const KEENABLE_API_KEY = process.env.KEENABLE_API_KEY || "";
 const SEARCH_LIMIT_HOUR_CLIENT = parseInt(process.env.SEARCH_LIMIT_HOUR_CLIENT || "50", 10);
 const SEARCH_LIMIT_HOUR_IP = parseInt(process.env.SEARCH_LIMIT_HOUR_IP || "200", 10);
+
+// ---- SIQ-1 (RunPod serverless) proxy config -------------------------------
+// The browser can't call RunPod directly (key + CORS + the async /run API), so
+// this server bridges an OpenAI-compatible streaming route to the RunPod
+// serverless vLLM endpoint, holding the key server-side. See server/README.md.
+const RUNPOD_API_KEY = process.env.RUNPOD_API_KEY || "";
+const SIQ_EID = process.env.SIQ_EID || ""; // RunPod serverless endpoint id
+const SIQ_MODEL = process.env.SIQ_MODEL || "siq"; // served-model-name on the worker
+const SIQ_MINTOK = parseInt(process.env.SIQ_MINTOK || "2048", 10);
+const SIQ_LIMIT_HOUR_CLIENT = parseInt(process.env.SIQ_LIMIT_HOUR_CLIENT || "60", 10);
+const SIQ_LIMIT_HOUR_IP = parseInt(process.env.SIQ_LIMIT_HOUR_IP || "120", 10);
+const siqEnabled = !!(RUNPOD_API_KEY && SIQ_EID);
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 
 if (!DATABASE_URL) {
@@ -99,8 +111,137 @@ app.use((req, res, next) => {
 });
 
 app.get("/api/health", (_req, res) =>
-  res.json({ ok: true, search: !!KEENABLE_API_KEY }),
+  res.json({ ok: true, search: !!KEENABLE_API_KEY, siq: siqEnabled }),
 );
+
+// ---- SIQ-1 inference proxy -------------------------------------------------
+// OpenAI-compatible. `GET /api/siq/v1/models` + streaming `POST
+// /api/siq/v1/chat/completions`. Bridges to the RunPod serverless vLLM worker's
+// OpenAI passthrough (api.runpod.ai/v2/<eid>/openai/v1/...), which supports SSE.
+app.get("/api/siq/v1/models", (_req, res) => {
+  res.json({ object: "list", data: [{ id: SIQ_MODEL, object: "model", owned_by: "runpod-serverless" }] });
+});
+
+function clientIp(req) {
+  return (
+    (req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() ||
+    req.socket.remoteAddress ||
+    "unknown"
+  ).slice(0, 64);
+}
+
+app.post("/api/siq/v1/chat/completions", async (req, res) => {
+  if (!siqEnabled) {
+    return res.status(503).json({ error: { message: "SIQ proxy not configured (RUNPOD_API_KEY / SIQ_EID)", type: "config" } });
+  }
+  const body = req.body || {};
+  if (!Array.isArray(body.messages) || body.messages.length === 0) {
+    return res.status(400).json({ error: { message: "messages required", type: "invalid_request" } });
+  }
+
+  const cid = str(body.client_id, 64);
+  const ip = clientIp(req);
+  // Per-client limit only when a real id is present (else all anon users would
+  // share one bucket); the per-IP limit always applies as the real backstop.
+  if (cid && cid !== "anon") {
+    const c = rateLimit("siqc:" + cid, SIQ_LIMIT_HOUR_CLIENT);
+    if (!c.ok) {
+      return res
+        .status(429)
+        .json({ error: { message: `rate limit: ${SIQ_LIMIT_HOUR_CLIENT}/hour per client`, type: "rate_limit", retry_in_s: Math.ceil(c.retryInMs / 1000) } });
+    }
+  }
+  const i = rateLimit("siqi:" + ip, SIQ_LIMIT_HOUR_IP);
+  if (!i.ok) {
+    return res
+      .status(429)
+      .json({ error: { message: `rate limit: ${SIQ_LIMIT_HOUR_IP}/hour per IP`, type: "rate_limit", retry_in_s: Math.ceil(i.retryInMs / 1000) } });
+  }
+
+  // ---- shape the request (siq1.md §3): thinking toggle, effort, min tokens.
+  const ctk = { ...(body.chat_template_kwargs || {}) };
+  const thinking = ctk.enable_thinking !== false; // default on
+  const messages = body.messages.map((m) => ({ role: m.role, content: m.content }));
+  const effort = typeof body.effort === "string" ? body.effort : "";
+  if (thinking && effort && !messages.some((m) => m.role === "system" && /Reasoning effort:/i.test(String(m.content || "")))) {
+    // SIQ-1 obeys a trained "Reasoning effort: low|medium|high" system directive.
+    messages.unshift({ role: "system", content: `Reasoning effort: ${effort}` });
+  }
+
+  const openaiInput = {
+    model: SIQ_MODEL,
+    messages,
+    temperature: typeof body.temperature === "number" ? body.temperature : 0.7,
+    max_tokens: Math.max(parseInt(body.max_tokens, 10) || 0, SIQ_MINTOK),
+    top_p: typeof body.top_p === "number" ? body.top_p : 0.95,
+    chat_template_kwargs: { enable_thinking: thinking },
+  };
+  if (typeof body.top_k === "number") openaiInput.top_k = body.top_k;
+  if (typeof body.presence_penalty === "number") openaiInput.presence_penalty = body.presence_penalty;
+
+  // SSE framing. RunPod serverless is async (/run + poll /status — NOT /runsync,
+  // siq1.md §3.A), so we emit the completed result as one reasoning delta + one
+  // content delta; the client engine accumulates delta.reasoning_content (folded
+  // into <think>…</think>) and delta.content exactly as for a token stream.
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  const sse = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+  const ka = setInterval(() => res.write(": keepalive\n\n"), 15_000);
+  // Detect a real client disconnect via res 'close' BEFORE we finish — req
+  // 'close' fires early under Express (body already buffered) and is NOT a
+  // disconnect signal.
+  const aborted = { v: false };
+  let finished = false;
+  res.on("close", () => { if (!finished) aborted.v = true; });
+  try {
+    const out = await siqRunAndPoll(openaiInput, aborted);
+    const msg = out?.choices?.[0]?.message || out?.choices?.[0]?.delta || {};
+    const content = msg.content ?? (typeof out === "string" ? out : "");
+    const reasoning = msg.reasoning_content ?? "";
+    if (reasoning) sse({ choices: [{ index: 0, delta: { reasoning_content: reasoning } }] });
+    sse({ choices: [{ index: 0, delta: { content }, finish_reason: "stop" }] });
+    res.write("data: [DONE]\n\n");
+  } catch (e) {
+    console.error("siq run/poll", e);
+    sse({ error: { message: "siq upstream: " + (e?.message || e), type: "upstream" } });
+  } finally {
+    finished = true;
+    clearInterval(ka);
+    res.end();
+  }
+});
+
+// Submit via RunPod async /run and poll /status to completion (openai_route +
+// openai_input envelope the SIQ-1 serverless worker accepts).
+async function siqRunAndPoll(openaiInput, aborted, pollMs = 280_000) {
+  const base = `https://api.runpod.ai/v2/${SIQ_EID}`;
+  const h = { "Content-Type": "application/json", Authorization: `Bearer ${RUNPOD_API_KEY}` };
+  const r = await fetch(`${base}/run`, {
+    method: "POST",
+    headers: h,
+    body: JSON.stringify({ input: { openai_route: "/v1/chat/completions", openai_input: openaiInput } }),
+  });
+  const job = await r.json();
+  if (job.output) return job.output;
+  const id = job.id;
+  if (!id) throw new Error("no job id: " + JSON.stringify(job).slice(0, 200));
+  const deadline = Date.now() + pollMs;
+  while (Date.now() < deadline) {
+    if (aborted.v) throw new Error("client aborted");
+    await new Promise((res) => setTimeout(res, 1200));
+    const st = await fetch(`${base}/status/${id}`, { headers: h }).then((x) => x.json());
+    if (st.status === "COMPLETED") {
+      const out = st.output;
+      return Array.isArray(out) && out.length ? out[out.length - 1] : out;
+    }
+    if (["FAILED", "CANCELLED", "TIMED_OUT"].includes(st.status)) {
+      throw new Error(`job ${st.status}: ` + JSON.stringify(st).slice(0, 200));
+    }
+  }
+  throw new Error("poll timeout");
+}
 
 // ---- search proxy: forwards to keenable.ai with server-side key -----------
 app.post("/api/search", async (req, res) => {

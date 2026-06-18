@@ -6,12 +6,45 @@ Tiny Express + Postgres service that logs Pi Agent user requests. Deployed on Ra
 
 ## Endpoints
 
-- `GET  /api/health` → `{ ok: true }`
+- `GET  /api/health` → `{ ok, search, siq }`
 - `POST /api/log` `{ client_id, project_id, project_name, model_id, prompt }` → `{ id }`
 - `PATCH /api/log/:id` `{ response, has_artifact }` → `{ ok: true }`
+- `POST /api/search` `{ query, client_id }` → keenable proxy (key server-side)
+- `GET  /api/siq/v1/models` · `POST /api/siq/v1/chat/completions` → **SIQ-1 inference proxy** (below)
 
 The frontend calls `POST` on send and `PATCH` when generation finishes
 (`src/lib/logger.ts`). CORS is open to `https://alexwortega.github.io` and localhost.
+
+## SIQ-1 inference proxy
+
+The web app's "SIQ-1-35B (cloud)" model streams through `POST /api/siq/v1/chat/completions`.
+The browser can't call RunPod directly (the API key would leak, RunPod sends no CORS
+headers, and its serverless API is async `/run`+poll). This route holds the key
+server-side, submits via RunPod async **`/run` + poll `/status`** (the `openai_input`
+envelope the SIQ-1 serverless worker accepts), and re-emits the completed result as an
+**OpenAI-compatible SSE stream** (`reasoning_content` delta + `content` delta + `[DONE]`).
+
+> Note: the same proxy currently runs as an HF Space (`siq_proxy_space/`,
+> `AlexWortega/siq-proxy`) because the Railway trial is expired. This route is the
+> Railway-hosted equivalent for when that's available again. See `../siq1-web.md`.
+
+It applies the SIQ-1 request shaping from `siq1.md`: a `Reasoning effort: <effort>`
+system line when thinking is on, an `enable_thinking` chat-template toggle, and a
+`max_tokens` floor. It is rate-limited per client/IP. Configure on the `api` service:
+
+```bash
+railway variables -s api \
+  --set RUNPOD_API_KEY=<your runpod key> \
+  --set SIQ_EID=<serverless endpoint id from scripts/runpod-siq-serverless.mjs>
+# optional:
+#   SIQ_MODEL    served-model-name on the worker (default "siq")
+#   SIQ_MINTOK   max_tokens floor (default 2048)
+#   SIQ_LIMIT_HOUR_CLIENT / SIQ_LIMIT_HOUR_IP   rate limits (default 60 / 120)
+```
+
+Leave `RUNPOD_API_KEY`/`SIQ_EID` unset to disable the route (returns 503; the cloud
+model in the picker just won't work, the in-browser Soyuz model is unaffected).
+The frontend points at `${VITE_LOG_API}/api/siq` by default — override with `VITE_SIQ_API`.
 
 ## Schema
 
