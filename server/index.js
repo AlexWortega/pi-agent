@@ -213,15 +213,17 @@ app.post("/api/siq/v1/chat/completions", async (req, res) => {
   }
 });
 
-// Submit via RunPod async /run and poll /status to completion (openai_route +
-// openai_input envelope the SIQ-1 serverless worker accepts).
+// Submit via RunPod async /run and poll /status to completion. The SIQ-1 GGUF
+// worker takes the OpenAI chat request DIRECTLY as `input` — NOT the
+// openai_route/openai_input envelope (that's for the vLLM worker; this worker
+// ignores it and answers an empty prompt).
 async function siqRunAndPoll(openaiInput, aborted, pollMs = 280_000) {
   const base = `https://api.runpod.ai/v2/${SIQ_EID}`;
   const h = { "Content-Type": "application/json", Authorization: `Bearer ${RUNPOD_API_KEY}` };
   const r = await fetch(`${base}/run`, {
     method: "POST",
     headers: h,
-    body: JSON.stringify({ input: { openai_route: "/v1/chat/completions", openai_input: openaiInput } }),
+    body: JSON.stringify({ input: openaiInput }),
   });
   const job = await r.json();
   if (job.output) return job.output;

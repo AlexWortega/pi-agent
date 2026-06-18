@@ -42,22 +42,22 @@ export const SIQ_API: string = (
 ).replace(/\/+$/, "");
 
 /**
+ * Local endpoint for SIQ-1 when the model picker's local/remote toggle is set to
+ * "local": an OpenAI-compatible llama-server you run yourself with the SIQ-1 GGUF
+ * (e.g. `llama-server -m SIQ-1-35B.Q4_K_M.gguf --jinja --host 0.0.0.0 --port 8080`).
+ * `/v1/chat/completions` is appended by the engine. Override with VITE_SIQ_LOCAL.
+ */
+export const SIQ_LOCAL: string = (
+  import.meta.env.VITE_SIQ_LOCAL ?? "http://localhost:8080"
+).replace(/\/+$/, "");
+
+/**
  * The Pi Agent runs the real Soyuz model — Qwen3.5-4B (hybrid linear-attention,
  * qwen3next gguf arch). The @reeselevine/wllama-webgpu WebGPU build ships the
  * qwen3next arch + its ops (gated_delta / linear_attn / ssm_scan), so it loads
  * and runs in-browser on your GPU.
  */
 export const MODEL_PRESETS: ModelPreset[] = [
-  {
-    id: "soyuz-4b",
-    label: "Soyuz Qwen3.5-4B (vibeapps)",
-    repo: "AlexWortega/qwen35-4b-soyuz-vibeapps-merged",
-    file: "vibeapps.Q4_K_M.gguf",
-    sizeLabel: "~2.5 GB",
-    note: "Soyuz vibeapps checkpoint — fine-tuned for self-contained web apps. Runs in your browser on WebGPU.",
-    verified: true,
-    accent: "#ff7a45",
-  },
   {
     id: "siq1-35b",
     label: "SIQ-1-35B (cloud)",
@@ -68,9 +68,19 @@ export const MODEL_PRESETS: ModelPreset[] = [
     verified: true,
     accent: "#7c5cff",
   },
+  {
+    id: "soyuz-4b",
+    label: "Soyuz Qwen3.5-4B (vibeapps)",
+    repo: "AlexWortega/qwen35-4b-soyuz-vibeapps-merged",
+    file: "vibeapps.Q4_K_M.gguf",
+    sizeLabel: "~2.5 GB",
+    note: "Soyuz vibeapps checkpoint — fine-tuned for self-contained web apps. Runs in your browser on WebGPU.",
+    verified: true,
+    accent: "#ff7a45",
+  },
 ];
 
-export const DEFAULT_MODEL_ID = "soyuz-4b";
+export const DEFAULT_MODEL_ID = "siq1-35b";
 
 export const SYSTEM_PROMPT = `You are Soyuz, the Pi Agent — a sharp, fast coding assistant.
 Reason briefly inside <think> ... </think>, then answer.
@@ -89,4 +99,6 @@ export const DEFAULT_PARAMS: GenParams = {
   // GPQA effort sweep (medium/high ≈ 79% on the 24-q slice). Ignored by local.
   thinking: true,
   effort: "medium",
+  // SIQ-1 runs on the cloud proxy by default; flip to "local" to hit a local llama-server.
+  endpointMode: "remote",
 };

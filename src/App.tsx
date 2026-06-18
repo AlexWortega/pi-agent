@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Model } from "@earendil-works/pi-ai";
 import type { Project, GenParams } from "./types";
-import { DEFAULT_PARAMS } from "./config";
+import { DEFAULT_PARAMS, SIQ_LOCAL } from "./config";
 import { loadProjects, saveProjects, newProject } from "./lib/store";
 import { resolveModel } from "./lib/models";
 import { engine, hasWebGPU } from "./engine/llama";
@@ -60,13 +60,19 @@ export default function App() {
   const loadModel = useCallback(
     async (modelId: string) => {
       const m = resolveModel(modelId);
+      // local/remote toggle for the cloud model: swap the endpoint to a local
+      // llama-server when the user picks "local" (default is the RunPod proxy).
+      const remote =
+        m.remote && params.endpointMode === "local"
+          ? { ...m.remote, endpoint: SIQ_LOCAL }
+          : m.remote;
       patchActive((p) => ({ ...p, modelId }));
       setEng({ phase: "loading", modelId, progress: 0, loaded: 0, total: 0 });
       // remote models report their server-side context window; local uses the slider.
       setStats({ contextWindow: m.remote?.contextWindow ?? params.contextLength });
       try {
         await engine.load(
-          { url: m.url, remote: m.remote },
+          { url: m.url, remote },
           {
             contextLength: params.contextLength,
             onProgress: (frac, loaded, total) => {
@@ -80,7 +86,7 @@ export default function App() {
         setEng({ phase: "error", modelId, progress: 0, loaded: 0, total: 0, error: String(e?.message || e) });
       }
     },
-    [params.contextLength, patchActive],
+    [params.contextLength, params.endpointMode, patchActive],
   );
 
   // ---- agent --------------------------------------------------------------
@@ -96,6 +102,14 @@ export default function App() {
   }, [eng.phase, eng.modelId, active?.modelId, activeModel.id, activeModel.label, loadModel, params]);
 
   const { messages, running, fsVersion, liveHtml, send, stop, reset, clearWorkspace } = useAgent(prepare);
+
+  // Cloud model only: when the local/remote toggle flips, re-point the engine.
+  useEffect(() => {
+    if (activeModel.remote && eng.phase === "ready" && eng.modelId === active?.modelId) {
+      loadModel(active.modelId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.endpointMode]);
 
   const createProject = () => {
     const p = newProject(`Project ${projects.length + 1}`);

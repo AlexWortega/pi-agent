@@ -119,6 +119,37 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
 
         {/* params */}
         <div className="px-5 py-4 border-t border-[var(--color-edge)] space-y-3">
+          {isRemote && (
+            <div className="space-y-1.5">
+              <div className="text-[12px] text-[var(--color-ink-dim)]">
+                Run on
+                <span className="text-[var(--color-ink-faint)]"> · where SIQ-1 executes</span>
+              </div>
+              <div className="flex gap-1.5">
+                {(["remote", "local"] as const).map((mode) => {
+                  const on = (params.endpointMode ?? "remote") === mode;
+                  return (
+                    <button
+                      key={mode}
+                      onClick={() => onParams({ ...params, endpointMode: mode })}
+                      className={`flex-1 rounded-lg border py-1.5 text-[12px] transition ${
+                        on
+                          ? "border-[var(--color-pi)] bg-[var(--color-pi)]/10 text-[var(--color-pi-2)]"
+                          : "border-[var(--color-edge)] hover:border-[var(--color-edge-2)] text-[var(--color-ink-dim)]"
+                      }`}
+                    >
+                      {mode === "remote" ? "Cloud · RunPod" : "Local server"}
+                    </button>
+                  );
+                })}
+              </div>
+              {(params.endpointMode ?? "remote") === "local" && (
+                <p className="text-[10.5px] text-[var(--color-ink-faint)] leading-snug">
+                  Expects an OpenAI-compatible llama-server with the SIQ-1 GGUF at <code>localhost:8080</code>.
+                </p>
+              )}
+            </div>
+          )}
           {showReasoning && (
             <div className="space-y-3 pb-1">
               <div className="flex items-center justify-between">

@@ -71,4 +71,6 @@ export interface GenParams {
   thinking?: boolean;
   /** Remote-only: SIQ-1 reasoning effort. Ignored by local models. */
   effort?: ReasoningEffort;
+  /** For the cloud model: hit the RunPod proxy ("remote") or a local llama-server ("local"). */
+  endpointMode?: "remote" | "local";
 }
