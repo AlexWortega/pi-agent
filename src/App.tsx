@@ -62,7 +62,8 @@ export default function App() {
       const m = resolveModel(modelId);
       patchActive((p) => ({ ...p, modelId }));
       setEng({ phase: "loading", modelId, progress: 0, loaded: 0, total: 0 });
-      setStats({ contextWindow: params.contextLength });
+      // remote models report their server-side context window; local uses the slider.
+      setStats({ contextWindow: m.remote?.contextWindow ?? params.contextLength });
       try {
         await engine.load(
           { url: m.url, remote: m.remote },

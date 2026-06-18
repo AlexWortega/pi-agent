@@ -43,6 +43,9 @@ export interface RemoteModel {
   model: string;
   /** SIQ-1 exposes a thinking toggle + reasoning-effort control per request. */
   reasoning?: boolean;
+  /** Context window the serving endpoint is configured with (server-side; the
+   *  client context-length slider doesn't apply to remote models). */
+  contextWindow?: number;
 }
 
 export interface ModelPreset {

@@ -61,7 +61,8 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "siq1-35b",
     label: "SIQ-1-35B (cloud)",
-    remote: { endpoint: SIQ_API, model: "siq", reasoning: true },
+    // contextWindow matches the serving worker's N_CTX (65536).
+    remote: { endpoint: SIQ_API, model: "siq", reasoning: true, contextWindow: 65536 },
     sizeLabel: "cloud · 35B-A3B",
     note: "Big reasoning model (Qwen3.6-35B-A3B MoE + Soyuz + RFT) served on RunPod serverless — nothing downloads, no WebGPU needed. Supports thinking + reasoning effort.",
     verified: true,

@@ -20,6 +20,8 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
   );
   const current = resolveModel(currentId);
   const showReasoning = !!current.remote?.reasoning;
+  const isRemote = !!current.remote;
+  const remoteCtx = current.remote?.contextWindow ?? 0;
 
   return (
     <div
@@ -175,21 +177,36 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
             label="Max output tokens"
             value={params.maxTokens}
             min={256}
-            max={8192}
+            // the cloud 35B has plenty of room for long reasoning + a full file
+            max={isRemote ? 32768 : 8192}
             step={256}
             fmt={(v) => String(v)}
             onChange={(v) => onParams({ ...params, maxTokens: v })}
           />
-          <Slider
-            label="Context length"
-            value={params.contextLength}
-            min={2048}
-            max={16384}
-            step={1024}
-            fmt={(v) => String(v)}
-            hint="Applied on next model load"
-            onChange={(v) => onParams({ ...params, contextLength: v })}
-          />
+          {isRemote ? (
+            // Context is fixed server-side for remote models — the slider would be
+            // a no-op, so show the real window the SIQ-1 endpoint serves.
+            <div className="flex items-center justify-between text-[12px]">
+              <span className="text-[var(--color-ink-dim)]">
+                Context window
+                <span className="text-[var(--color-ink-faint)]"> · served by the endpoint</span>
+              </span>
+              <span className="font-[var(--font-mono)] text-[var(--color-pi-2)]">
+                {remoteCtx >= 1024 ? `${Math.round(remoteCtx / 1024)}K` : remoteCtx}
+              </span>
+            </div>
+          ) : (
+            <Slider
+              label="Context length"
+              value={params.contextLength}
+              min={2048}
+              max={16384}
+              step={1024}
+              fmt={(v) => String(v)}
+              hint="Applied on next model load"
+              onChange={(v) => onParams({ ...params, contextLength: v })}
+            />
+          )}
         </div>
       </div>
     </div>
