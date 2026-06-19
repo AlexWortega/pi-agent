@@ -31,6 +31,8 @@ export interface ChatOpts {
   /** Remote-only (SIQ-1): thinking mode + reasoning effort. */
   thinking?: boolean;
   effort?: ReasoningEffort;
+  /** Remote-only: RunPod job lifecycle (IN_QUEUE/IN_PROGRESS) for a live status. */
+  onStatus?: (status: string) => void;
 }
 
 /**
@@ -260,7 +262,10 @@ class LlamaEngine {
           const data = s.slice(5).trim();
           if (data === "[DONE]") return cut ?? compose();
           try {
-            const delta = JSON.parse(data)?.choices?.[0]?.delta ?? {};
+            const obj = JSON.parse(data);
+            // worker lifecycle status (cold start vs generating) — not content
+            if (obj?.siq_status) { opts.onStatus?.(obj.siq_status); continue; }
+            const delta = obj?.choices?.[0]?.delta ?? {};
             const rc = delta.reasoning_content ?? "";
             const c = delta.content ?? "";
             if (rc) reasoning += rc;

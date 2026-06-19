@@ -202,7 +202,9 @@ export function localStream(
     let sawFirstToken = false;
     let lastStat = 0;
     const t0 = performance.now();
-    setStats({ generating: true, liveTokens: 0, phase: "thinking" });
+    // Remote (cloud) runs go through a non-streaming proxy: show "connecting"
+    // until the worker reports status, so it never looks like a frozen "thinking".
+    setStats({ generating: true, liveTokens: 0, phase: engine.serverMode ? "connecting…" : "thinking" });
 
     try {
       console.debug(`[pi] chat start — ${messages.length} messages, ~${promptTokens} prompt tokens`);
@@ -230,6 +232,16 @@ export function localStream(
           // Remote-only (SIQ-1) reasoning controls; ignored by the in-browser path.
           thinking: reasoning?.thinking,
           effort: reasoning?.effort,
+          // Remote-only: cloud worker lifecycle → a live, honest status (no frozen spinner).
+          onStatus: (status) => {
+            const phase =
+              status === "IN_QUEUE"
+                ? "starting cloud GPU…"
+                : status === "IN_PROGRESS"
+                  ? "generating on cloud GPU…"
+                  : status.toLowerCase();
+            setStats({ generating: true, phase, liveTokens: 0 });
+          },
           signal: options?.signal,
           onToken: (full) => {
             if (!sawFirstToken) {

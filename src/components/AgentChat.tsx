@@ -2,7 +2,35 @@ import { useEffect, useRef, useState } from "react";
 import type { UiMessage } from "../pi/useAgent";
 import type { EngineState } from "../App";
 import { renderMarkdown } from "../lib/parse";
+import { useStats } from "../pi/stats";
 import { Send, Stop, Satellite, Check, X, Code } from "./Icons";
+
+/**
+ * Pre-content indicator: while the model is working but hasn't emitted any text
+ * yet (e.g. the cloud model is starting a GPU or generating without token
+ * streaming), show the live phase + a ticking elapsed counter so it's clearly
+ * alive — not a frozen "thinking".
+ */
+function StreamingIndicator() {
+  const { phase } = useStats();
+  const [secs, setSecs] = useState(0);
+  useEffect(() => {
+    const t0 = Date.now();
+    const id = setInterval(() => setSecs(Math.round((Date.now() - t0) / 1000)), 500);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="flex items-center gap-2 pl-1 text-[12px] text-[var(--color-ink-faint)]">
+      <span className="flex items-center gap-1">
+        <span className="typing-dot" />
+        <span className="typing-dot" style={{ animationDelay: "0.15s" }} />
+        <span className="typing-dot" style={{ animationDelay: "0.3s" }} />
+      </span>
+      <span>{phase ?? "working"}</span>
+      {secs >= 2 && <span className="font-[var(--font-mono)] opacity-70">{secs}s</span>}
+    </div>
+  );
+}
 
 interface Props {
   messages: UiMessage[];
@@ -142,13 +170,7 @@ function AssistantView({ m }: { m: Extract<UiMessage, { kind: "assistant" }> }) 
             dangerouslySetInnerHTML={{ __html: renderMarkdown(m.text) }}
           />
         )}
-        {m.streaming && !m.text && !m.thinking && (
-          <div className="flex items-center gap-1.5 pl-1">
-            <span className="typing-dot" />
-            <span className="typing-dot" style={{ animationDelay: "0.15s" }} />
-            <span className="typing-dot" style={{ animationDelay: "0.3s" }} />
-          </div>
-        )}
+        {m.streaming && !m.text && !m.thinking && <StreamingIndicator />}
         {m.error && (
           <div className="mt-1 text-[13px] text-[#ff8a8a] whitespace-pre-wrap">⚠️ {m.error}</div>
         )}

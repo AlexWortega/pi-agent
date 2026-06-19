@@ -163,9 +163,19 @@ app.post("/api/siq/v1/chat/completions", async (req, res) => {
   const thinking = ctk.enable_thinking !== false; // default on
   const messages = body.messages.map((m) => ({ role: m.role, content: m.content }));
   const effort = typeof body.effort === "string" ? body.effort : "";
-  if (thinking && effort && !messages.some((m) => m.role === "system" && /Reasoning effort:/i.test(String(m.content || "")))) {
-    // SIQ-1 obeys a trained "Reasoning effort: low|medium|high" system directive.
-    messages.unshift({ role: "system", content: `Reasoning effort: ${effort}` });
+  if (thinking && effort) {
+    // SIQ-1 obeys a trained "Reasoning effort: low|medium|high" directive. Merge it
+    // INTO the existing system message — this GGUF worker returns an empty
+    // completion if it receives a second system message.
+    const line = `Reasoning effort: ${effort}`;
+    const si = messages.findIndex((m) => m.role === "system");
+    if (si >= 0) {
+      if (!/Reasoning effort:/i.test(String(messages[si].content || ""))) {
+        messages[si] = { ...messages[si], content: `${line}\n\n${messages[si].content}` };
+      }
+    } else {
+      messages.unshift({ role: "system", content: line });
+    }
   }
 
   const openaiInput = {
@@ -196,7 +206,7 @@ app.post("/api/siq/v1/chat/completions", async (req, res) => {
   let finished = false;
   res.on("close", () => { if (!finished) aborted.v = true; });
   try {
-    const out = await siqRunAndPoll(openaiInput, aborted);
+    const out = await siqRunAndPoll(openaiInput, aborted, (status) => sse({ siq_status: status }));
     const msg = out?.choices?.[0]?.message || out?.choices?.[0]?.delta || {};
     const content = msg.content ?? (typeof out === "string" ? out : "");
     const reasoning = msg.reasoning_content ?? "";
@@ -217,7 +227,7 @@ app.post("/api/siq/v1/chat/completions", async (req, res) => {
 // worker takes the OpenAI chat request DIRECTLY as `input` — NOT the
 // openai_route/openai_input envelope (that's for the vLLM worker; this worker
 // ignores it and answers an empty prompt).
-async function siqRunAndPoll(openaiInput, aborted, pollMs = 280_000) {
+async function siqRunAndPoll(openaiInput, aborted, onStatus, pollMs = 280_000) {
   const base = `https://api.runpod.ai/v2/${SIQ_EID}`;
   const h = { "Content-Type": "application/json", Authorization: `Bearer ${RUNPOD_API_KEY}` };
   const r = await fetch(`${base}/run`, {
@@ -230,10 +240,12 @@ async function siqRunAndPoll(openaiInput, aborted, pollMs = 280_000) {
   const id = job.id;
   if (!id) throw new Error("no job id: " + JSON.stringify(job).slice(0, 200));
   const deadline = Date.now() + pollMs;
+  let last = "";
   while (Date.now() < deadline) {
     if (aborted.v) throw new Error("client aborted");
     await new Promise((res) => setTimeout(res, 1200));
     const st = await fetch(`${base}/status/${id}`, { headers: h }).then((x) => x.json());
+    if (st.status && st.status !== last) { last = st.status; onStatus?.(st.status); }
     if (st.status === "COMPLETED") {
       const out = st.output;
       return Array.isArray(out) && out.length ? out[out.length - 1] : out;
