@@ -23,7 +23,10 @@ const SIQ_MODEL = process.env.SIQ_MODEL || "siq"; // served-model-name on the wo
 const SIQ_MINTOK = parseInt(process.env.SIQ_MINTOK || "2048", 10);
 const SIQ_LIMIT_HOUR_CLIENT = parseInt(process.env.SIQ_LIMIT_HOUR_CLIENT || "60", 10);
 const SIQ_LIMIT_HOUR_IP = parseInt(process.env.SIQ_LIMIT_HOUR_IP || "120", 10);
-const siqEnabled = !!(RUNPOD_API_KEY && SIQ_EID);
+// Optional: a streaming OpenAI upstream (Modal llama-server). When set, it's
+// preferred over RunPod and the proxy pipes its SSE through token-by-token.
+const SIQ_OPENAI_URL = (process.env.SIQ_OPENAI_URL || "").replace(/\/+$/, "");
+const siqEnabled = !!SIQ_OPENAI_URL || !!(RUNPOD_API_KEY && SIQ_EID);
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 
 if (!DATABASE_URL) {
@@ -206,15 +209,22 @@ app.post("/api/siq/v1/chat/completions", async (req, res) => {
   let finished = false;
   res.on("close", () => { if (!finished) aborted.v = true; });
   try {
-    const out = await siqRunAndPoll(openaiInput, aborted, (status) => sse({ siq_status: status }));
-    const msg = out?.choices?.[0]?.message || out?.choices?.[0]?.delta || {};
-    const content = msg.content ?? (typeof out === "string" ? out : "");
-    const reasoning = msg.reasoning_content ?? "";
-    if (reasoning) sse({ choices: [{ index: 0, delta: { reasoning_content: reasoning } }] });
-    sse({ choices: [{ index: 0, delta: { content }, finish_reason: "stop" }] });
-    res.write("data: [DONE]\n\n");
+    if (SIQ_OPENAI_URL) {
+      // Modal llama-server: a real streaming OpenAI endpoint → pipe its SSE
+      // through token-by-token (live output), after waiting out any cold start.
+      await siqOpenAIPassthrough(openaiInput, res, sse, aborted);
+    } else {
+      // RunPod GGUF worker: async /run + poll, emit the completed result as deltas.
+      const out = await siqRunAndPoll(openaiInput, aborted, (status) => sse({ siq_status: status }));
+      const msg = out?.choices?.[0]?.message || out?.choices?.[0]?.delta || {};
+      const content = msg.content ?? (typeof out === "string" ? out : "");
+      const reasoning = msg.reasoning_content ?? "";
+      if (reasoning) sse({ choices: [{ index: 0, delta: { reasoning_content: reasoning } }] });
+      sse({ choices: [{ index: 0, delta: { content }, finish_reason: "stop" }] });
+      res.write("data: [DONE]\n\n");
+    }
   } catch (e) {
-    console.error("siq run/poll", e);
+    console.error("siq upstream", e);
     sse({ error: { message: "siq upstream: " + (e?.message || e), type: "upstream" } });
   } finally {
     finished = true;
@@ -222,6 +232,40 @@ app.post("/api/siq/v1/chat/completions", async (req, res) => {
     res.end();
   }
 });
+
+// Stream a chat completion from a Modal llama-server (OpenAI SSE). Waits out the
+// cold start (llama-server returns 503 "Loading model" until the GGUF is loaded),
+// surfacing siq_status so the client shows "starting/generating cloud GPU…", then
+// pipes the upstream SSE bytes straight through to the browser.
+async function siqOpenAIPassthrough(openaiInput, res, sse, aborted) {
+  const base = SIQ_OPENAI_URL;
+  for (let i = 0; i < 150 && !aborted.v; i++) {
+    let ready = false;
+    try { ready = (await fetch(`${base}/v1/models`)).ok; } catch { /* cold */ }
+    if (ready) break;
+    sse({ siq_status: "IN_QUEUE" });
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (aborted.v) return;
+  sse({ siq_status: "IN_PROGRESS" });
+  const up = await fetch(`${base}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...openaiInput, stream: true }),
+  });
+  if (!up.ok || !up.body) {
+    const txt = await up.text().catch(() => "");
+    sse({ error: { message: `siq upstream ${up.status}`, type: "upstream", detail: txt.slice(0, 200) } });
+    return;
+  }
+  const reader = up.body.getReader();
+  while (!aborted.v) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    res.write(Buffer.from(value)); // llama-server already emits data: …\n\n and [DONE]
+  }
+  try { await reader.cancel(); } catch { /* ignore */ }
+}
 
 // Submit via RunPod async /run and poll /status to completion. The SIQ-1 GGUF
 // worker takes the OpenAI chat request DIRECTLY as `input` — NOT the
