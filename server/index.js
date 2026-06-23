@@ -27,6 +27,8 @@ const SIQ_LIMIT_HOUR_IP = parseInt(process.env.SIQ_LIMIT_HOUR_IP || "120", 10);
 // preferred over RunPod and the proxy pipes its SSE through token-by-token.
 const SIQ_OPENAI_URL = (process.env.SIQ_OPENAI_URL || "").replace(/\/+$/, "");
 const siqEnabled = !!SIQ_OPENAI_URL || !!(RUNPOD_API_KEY && SIQ_EID);
+// Modal Firecracker sandbox execution endpoint
+const SIQ_EXEC_URL = (process.env.SIQ_EXEC_URL || "").replace(/\/+$/, "");
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 
 if (!DATABASE_URL) {
@@ -300,6 +302,59 @@ async function siqRunAndPoll(openaiInput, aborted, onStatus, pollMs = 280_000) {
   }
   throw new Error("poll timeout");
 }
+
+// ---- code execution proxy: forwards to Modal Firecracker sandbox ----------
+// POST /api/exec { command, timeout? } → SSE stream from Modal siq1-exec service
+app.post("/api/exec", async (req, res) => {
+  if (!SIQ_EXEC_URL) {
+    return res.status(503).json({ error: { message: "exec service not configured (SIQ_EXEC_URL)", type: "config" } });
+  }
+  const { command, timeout } = req.body || {};
+  if (!command || typeof command !== "string" || !command.trim()) {
+    return res.status(400).json({ error: { message: "command required", type: "invalid_request" } });
+  }
+  const timeoutMs = Math.min(typeof timeout === "number" ? timeout : 30_000, 60_000);
+
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  let finished = false;
+  res.on("close", () => { finished = true; });
+
+  try {
+    const up = await fetch(`${SIQ_EXEC_URL}/execute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command: command.trim(), timeout: timeoutMs }),
+      signal: AbortSignal.timeout(timeoutMs + 10_000),
+    });
+    if (!up.ok || !up.body) {
+      const txt = await up.text().catch(() => "");
+      res.write(`data: ${JSON.stringify({ type: "stderr", data: `exec upstream ${up.status}: ${txt.slice(0, 200)}` })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: "exit", code: 1 })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      return;
+    }
+    const reader = up.body.getReader();
+    while (!finished) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(Buffer.from(value));
+    }
+    try { await reader.cancel(); } catch { /* ok */ }
+  } catch (e) {
+    console.error("POST /api/exec upstream", e);
+    if (!finished) {
+      res.write(`data: ${JSON.stringify({ type: "stderr", data: `exec error: ${e?.message || e}` })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: "exit", code: 1 })}\n\n`);
+      res.write("data: [DONE]\n\n");
+    }
+  } finally {
+    res.end();
+  }
+});
 
 // ---- search proxy: forwards to keenable.ai with server-side key -----------
 app.post("/api/search", async (req, res) => {
