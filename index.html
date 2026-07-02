@@ -7,6 +7,13 @@
     <title>Pi Agent · Soyuz — llama.cpp WebGPU</title>
   </head>
   <body>
+    <!--
+      Enables cross-origin isolation (COOP/COEP) via a service worker so
+      SharedArrayBuffer + multi-threaded WASM work on GitHub Pages, which
+      can't set custom response headers. MIT, github.com/gzuidhof/coi-serviceworker.
+      Must stay a separate, unbundled file per its own usage rules.
+    -->
+    <script src="./coi-serviceworker.js"></script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

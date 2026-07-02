@@ -18,6 +18,7 @@
     "@earendil-works/pi-agent-core": "^0.78.0",
     "@earendil-works/pi-ai": "^0.78.0",
     "@reeselevine/wllama-webgpu": "^1.0.0",
+    "coi-serviceworker": "^0.1.7",
     "diff": "^8.0.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

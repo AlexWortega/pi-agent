@@ -23,6 +23,12 @@ export interface LoadOpts {
   onProgress?: (frac: number, loaded: number, total: number) => void;
 }
 
+export interface NativeTool {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
 export interface ChatOpts {
   temperature: number;
   maxTokens: number;
@@ -33,6 +39,8 @@ export interface ChatOpts {
   effort?: ReasoningEffort;
   /** Remote-only: RunPod job lifecycle (IN_QUEUE/IN_PROGRESS) for a live status. */
   onStatus?: (status: string) => void;
+  /** Tools to pass natively when the endpoint supports OpenAI tool_calls (e.g. OpenRouter). */
+  tools?: NativeTool[];
 }
 
 /**
@@ -96,12 +104,18 @@ class LlamaEngine {
     // free any previous model first
     await this.unload();
 
-    console.debug(`[pi] loading model on ${this.backend}, n_ctx=${opts.contextLength}…`);
+    // wllama's own default is hardwareConcurrency/2 when n_threads is unset —
+    // leave just one core free for UI/rendering instead of giving up half the
+    // machine. Only takes effect when cross-origin isolation (see
+    // coi-serviceworker in index.html) actually unlocks the multi-thread build.
+    const n_threads = Math.max(1, (navigator.hardwareConcurrency || 4) - 1);
+    console.debug(`[pi] loading model on ${this.backend}, n_ctx=${opts.contextLength}, n_threads=${n_threads}…`);
     const t0 = performance.now();
     const wllama = new Wllama(WasmFromPackage, { backend: this.backend });
     await wllama.loadModelFromUrl(url, {
       n_ctx: opts.contextLength,
       n_batch: 256,
+      n_threads,
       useCache: true,
       progressCallback: ({ loaded, total }: { loaded: number; total: number }) => {
         opts.onProgress?.(total > 0 ? loaded / total : 0, loaded, total);
@@ -155,6 +169,11 @@ class LlamaEngine {
         {
           nPredict: opts.maxTokens,
           abortSignal: internal.signal,
+          // Reuse the KV cache for the unchanged history prefix instead of
+          // re-prefilling the whole conversation every turn — without this,
+          // an agent loop with growing tool-call history gets quadratically
+          // slower as the conversation goes on.
+          useCache: true,
           // Empirically-tuned sampling for Soyuz: temp 0.8 (greedy/low → empty
           // <think> + loops), soft penalties only (repeat ≥1.2 or presence ≥0.8
           // garble code), no frequency penalty.
@@ -216,9 +235,11 @@ class LlamaEngine {
     };
 
     const thinking = remote.reasoning ? opts.thinking !== false : false;
+    // Direct API calls (apiKey set = OpenRouter / Claude) use native tool_calls;
+    // proxy calls (SIQ-1 via Railway) rely on the <tool_call> text format.
+    const useNativeTools = !!remote.apiKey && !!opts.tools?.length;
     const body: Record<string, unknown> = {
       model: remote.model,
-      // stable per-browser id so the proxy can rate-limit per client (not just IP)
       client_id: clientId(),
       stream: true,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
@@ -226,21 +247,31 @@ class LlamaEngine {
       max_tokens: opts.maxTokens,
       top_p: thinking ? 0.95 : 0.9,
       top_k: 40,
-      // greedy verify on the server engages when this is a deterministic sample;
-      // these match the in-browser sampling so output style is consistent.
       repeat_penalty: 1.1,
       presence_penalty: 0.4,
     };
+    if (useNativeTools) {
+      body.tools = opts.tools!.map((t) => ({
+        type: "function",
+        function: { name: t.name, description: t.description, parameters: t.parameters },
+      }));
+      body.tool_choice = "auto";
+    }
     if (remote.reasoning) {
-      // SIQ-1 toggles thinking via the chat template; effort is injected as a
-      // system line by the proxy when thinking is on (see server/index.js).
       body.chat_template_kwargs = { enable_thinking: thinking };
       if (thinking && opts.effort) body.effort = opts.effort;
     }
 
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (remote.apiKey) {
+      headers["Authorization"] = `Bearer ${remote.apiKey}`;
+      // OpenRouter recommends these for usage attribution
+      headers["HTTP-Referer"] = "https://alexwortega.github.io/pi-agent/";
+      headers["X-Title"] = "Pi Agent";
+    }
     const res = await fetch(`${remote.endpoint}/v1/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       signal: opts.signal,
       body: JSON.stringify(body),
     });
@@ -249,6 +280,8 @@ class LlamaEngine {
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = "";
+    // Accumulate native OpenAI tool_calls across SSE chunks (keyed by index).
+    const pendingCalls: Record<number, { name: string; args: string }> = {};
     try {
       while (cut === null) {
         const { done, value } = await reader.read();
@@ -260,10 +293,23 @@ class LlamaEngine {
           const s = line.trim();
           if (!s.startsWith("data:")) continue;
           const data = s.slice(5).trim();
-          if (data === "[DONE]") return cut ?? compose();
+          if (data === "[DONE]") {
+            // Serialize any native tool calls as <tool_call> text blocks.
+            if (useNativeTools) {
+              const indices = Object.keys(pendingCalls).map(Number).sort((a, b) => a - b);
+              for (const idx of indices) {
+                const tc = pendingCalls[idx];
+                if (!tc.name) continue;
+                let args: unknown;
+                try { args = JSON.parse(tc.args); } catch { args = {}; }
+                answer += `\n<tool_call>\n${JSON.stringify({ name: tc.name, arguments: args })}\n</tool_call>`;
+              }
+              if (indices.length) emit();
+            }
+            return cut ?? compose();
+          }
           try {
             const obj = JSON.parse(data);
-            // worker lifecycle status (cold start vs generating) — not content
             if (obj?.siq_status) { opts.onStatus?.(obj.siq_status); continue; }
             const delta = obj?.choices?.[0]?.delta ?? {};
             const rc = delta.reasoning_content ?? "";
@@ -271,21 +317,36 @@ class LlamaEngine {
             if (rc) reasoning += rc;
             if (c) answer += c;
             if (rc || c) emit();
+            // Accumulate native tool_calls fragments.
+            if (useNativeTools && Array.isArray(delta.tool_calls)) {
+              for (const tc of delta.tool_calls as Array<{ index: number; function?: { name?: string; arguments?: string } }>) {
+                if (!pendingCalls[tc.index]) pendingCalls[tc.index] = { name: "", args: "" };
+                if (tc.function?.name) pendingCalls[tc.index].name += tc.function.name;
+                if (tc.function?.arguments) pendingCalls[tc.index].args += tc.function.arguments;
+              }
+            }
           } catch {
-            /* partial JSON across chunk boundary — wait for more */
+            /* partial JSON across chunk boundary */
           }
           if (cut !== null) break;
         }
       }
-      try {
-        await reader.cancel();
-      } catch {
-        /* ignore */
+      try { await reader.cancel(); } catch { /* ignore */ }
+      // Flush any tool calls if stream ended without [DONE].
+      if (useNativeTools) {
+        const indices = Object.keys(pendingCalls).map(Number).sort((a, b) => a - b);
+        for (const idx of indices) {
+          const tc = pendingCalls[idx];
+          if (!tc.name) continue;
+          let args: unknown;
+          try { args = JSON.parse(tc.args); } catch { args = {}; }
+          answer += `\n<tool_call>\n${JSON.stringify({ name: tc.name, arguments: args })}\n</tool_call>`;
+        }
       }
       return cut ?? compose();
     } catch (err) {
-      if (cut !== null) return cut; // stopped by our stop-sequence
-      if ((err as { name?: string })?.name === "AbortError") return compose(); // user abort
+      if (cut !== null) return cut;
+      if ((err as { name?: string })?.name === "AbortError") return compose();
       throw err;
     }
   }
