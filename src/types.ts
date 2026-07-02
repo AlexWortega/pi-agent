@@ -41,6 +41,8 @@ export interface RemoteModel {
   endpoint: string;
   /** model tag sent in the request body. */
   model: string;
+  /** Bearer token for direct API calls (e.g. OpenRouter). Never committed — read from env. */
+  apiKey?: string;
   /** SIQ-1 exposes a thinking toggle + reasoning-effort control per request. */
   reasoning?: boolean;
   /** Context window the serving endpoint is configured with (server-side; the
@@ -73,4 +75,12 @@ export interface GenParams {
   effort?: ReasoningEffort;
   /** For the cloud model: hit the RunPod proxy ("remote") or a local llama-server ("local"). */
   endpointMode?: "remote" | "local";
+}
+
+export interface PluginDef {
+  id: string;
+  name: string;
+  /** ES module URL: raw.githubusercontent.com/…/plugin.js or esm.sh/pkg or any HTTPS URL */
+  url: string;
+  enabled: boolean;
 }
