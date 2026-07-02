@@ -72,7 +72,11 @@ export const MODEL_PRESETS: ModelPreset[] = [
     id: "soyuz-4b",
     label: "Soyuz Qwen3.5-4B (vibeapps)",
     repo: "AlexWortega/qwen35-4b-soyuz-vibeapps-merged",
-    file: "vibeapps.Q4_K_M.gguf",
+    // Split into 7×~512MB shards (llama-gguf-split) so wllama downloads them
+    // in parallel (parallelDownloads, default 3) instead of crawling a single
+    // 2.7GB file on one connection. Pass the first shard; wllama auto-detects
+    // the rest from the gguf-split naming convention.
+    file: "vibeapps.Q4_K_M-00001-of-00007.gguf",
     sizeLabel: "~2.5 GB",
     note: "Soyuz vibeapps checkpoint — fine-tuned for self-contained web apps. Runs in your browser on WebGPU.",
     verified: true,
