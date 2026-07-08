@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { Model } from "@earendil-works/pi-ai";
 import type { Project, GenParams } from "./types";
 import { DEFAULT_PARAMS, SIQ_LOCAL } from "./config";
 import { loadProjects, saveProjects, newProject } from "./lib/store";
-import { resolveModel } from "./lib/models";
+import { getOpenRouterKey, isOpenRouter, resolveModel } from "./lib/models";
 import { engine, hasWebGPU } from "./engine/llama";
-import { useAgent } from "./pi/useAgent";
+import { useAgent, type PreparedRun } from "./pi/useAgent";
 import { makeAgentModel } from "./pi/runtime";
 import { setStats } from "./pi/stats";
 import { Sidebar } from "./components/Sidebar";
@@ -60,10 +59,11 @@ export default function App() {
   const loadModel = useCallback(
     async (modelId: string) => {
       const m = resolveModel(modelId);
-      // local/remote toggle for the cloud model: swap the endpoint to a local
+      // local/remote toggle for the SIQ cloud model: swap the endpoint to a local
       // llama-server when the user picks "local" (default is the RunPod proxy).
+      // OpenRouter models always talk to openrouter.ai — the toggle is SIQ-only.
       const remote =
-        m.remote && params.endpointMode === "local"
+        m.remote && params.endpointMode === "local" && !isOpenRouter(m)
           ? { ...m.remote, endpoint: SIQ_LOCAL }
           : m.remote;
       patchActive((p) => ({ ...p, modelId }));
@@ -90,22 +90,37 @@ export default function App() {
   );
 
   // ---- agent --------------------------------------------------------------
-  // `prepare` ensures the Soyuz model is downloaded/loaded, then hands the
-  // agent loop a model descriptor. Returns null on failure so useAgent can
-  // surface a friendly error in the chat.
-  const prepare = useCallback(async (): Promise<Model<any> | null> => {
+  // `prepare` makes the selected model ready to run (download/load for local
+  // GGUFs, key check for OpenRouter) and hands the agent loop a model
+  // descriptor — or a user-facing error string for the chat.
+  const prepare = useCallback(async (): Promise<PreparedRun> => {
+    const cloud = isOpenRouter(activeModel);
+    if (cloud && !getOpenRouterKey()) {
+      return {
+        error:
+          "No OpenRouter API key set. Open the model picker (top bar) and paste your key — it stays in your browser.",
+      };
+    }
     if (eng.phase !== "ready" || eng.modelId !== active.modelId) {
       await loadModel(active.modelId);
     }
-    if (!engine.ready) return null;
-    return makeAgentModel({ id: activeModel.id, label: activeModel.label }, params);
+    if (!engine.ready) {
+      return {
+        error:
+          "Failed to load the model. Local models need WebGPU (Chrome / Edge / Safari) — or switch to a cloud model in the picker.",
+      };
+    }
+    return {
+      model: makeAgentModel({ id: activeModel.id, label: activeModel.label }, params),
+      cloud,
+    };
   }, [eng.phase, eng.modelId, active?.modelId, activeModel.id, activeModel.label, loadModel, params]);
 
   const { messages, running, fsVersion, liveHtml, send, stop, reset, clearWorkspace } = useAgent(prepare);
 
-  // Cloud model only: when the local/remote toggle flips, re-point the engine.
+  // SIQ cloud model only: when the local/remote toggle flips, re-point the engine.
   useEffect(() => {
-    if (activeModel.remote && eng.phase === "ready" && eng.modelId === active?.modelId) {
+    if (activeModel.remote && !isOpenRouter(activeModel) && eng.phase === "ready" && eng.modelId === active?.modelId) {
       loadModel(active.modelId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -65,8 +65,11 @@ function resultToText(result: { content?: Array<{ type: string; text?: string }>
 let idSeq = 0;
 const nextId = () => `ui-${++idSeq}`;
 
-/** A function that ensures the model is loaded and returns its descriptor (or null on failure). */
-export type PrepareModel = () => Promise<Model<any> | null>;
+/** Result of preparing a run: a ready model (cloud = via OpenRouter) or a user-facing error. */
+export type PreparedRun = { model: Model<any>; cloud?: boolean } | { error: string };
+
+/** A function that ensures the model is ready and returns it (or an error to show in chat). */
+export type PrepareModel = () => Promise<PreparedRun>;
 
 export interface UseAgentResult {
   messages: UiMessage[];
@@ -123,8 +126,8 @@ export function useAgent(prepare: PrepareModel): UseAgentResult {
       setLiveHtml(null);
       console.debug("[pi] ▶ run:", trimmed);
 
-      const model = await prepare();
-      if (!model) {
+      const prepared = await prepare();
+      if ("error" in prepared) {
         setMessages((prev) => [
           ...prev,
           {
@@ -133,8 +136,7 @@ export function useAgent(prepare: PrepareModel): UseAgentResult {
             text: "",
             thinking: "",
             streaming: false,
-            error:
-              "Failed to load the Soyuz model. This agent needs WebGPU (Chrome / Edge / Safari) — check the model picker and try Reload.",
+            error: prepared.error,
           },
         ]);
         setRunning(false);
@@ -144,7 +146,12 @@ export function useAgent(prepare: PrepareModel): UseAgentResult {
       // One mode: tools available, prompt directs Soyuz to a single `write` of
       // the full file (which it does cleanly at temp 0.1). The HTML bridge
       // covers the rare case it emits a raw ```html block instead.
-      const run = startAgentRun({ prompt: trimmed, history: transcriptRef.current, model });
+      const run = startAgentRun({
+        prompt: trimmed,
+        history: transcriptRef.current,
+        model: prepared.model,
+        cloud: prepared.cloud,
+      });
       abortRef.current = run.abort;
 
       try {

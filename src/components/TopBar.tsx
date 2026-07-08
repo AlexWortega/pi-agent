@@ -127,7 +127,11 @@ export function TopBar({ model, eng, webgpu, onOpenPicker, onReload }: Props) {
         {ready && (
           <span className="inline-flex items-center gap-1.5 text-[11.5px] text-[var(--color-mint)]">
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-mint)]" />
-            Loaded · running on {webgpu ? "WebGPU" : "CPU"}
+            {model.id.startsWith("or:")
+              ? "Cloud · via OpenRouter with your key"
+              : model.remote
+                ? "Cloud · remote endpoint"
+                : `Loaded · running on ${webgpu ? "WebGPU" : "CPU"}`}
           </span>
         )}
         {errored && (

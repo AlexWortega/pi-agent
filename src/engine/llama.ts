@@ -240,16 +240,21 @@ class LlamaEngine {
     const useNativeTools = !!remote.apiKey && !!opts.tools?.length;
     const body: Record<string, unknown> = {
       model: remote.model,
-      client_id: clientId(),
       stream: true,
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
       temperature: opts.temperature,
       max_tokens: opts.maxTokens,
-      top_p: thinking ? 0.95 : 0.9,
-      top_k: 40,
-      repeat_penalty: 1.1,
-      presence_penalty: 0.4,
     };
+    if (remote.apiKey) {
+      // Direct API (OpenRouter): frontier models sample fine on their provider
+      // defaults — the llama.cpp anti-loop knobs below would only distort them.
+    } else {
+      body.client_id = clientId();
+      body.top_p = thinking ? 0.95 : 0.9;
+      body.top_k = 40;
+      body.repeat_penalty = 1.1;
+      body.presence_penalty = 0.4;
+    }
     if (useNativeTools) {
       body.tools = opts.tools!.map((t) => ({
         type: "function",

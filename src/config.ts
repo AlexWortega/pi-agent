@@ -86,6 +86,69 @@ export const MODEL_PRESETS: ModelPreset[] = [
 
 export const DEFAULT_MODEL_ID = "siq1-35b";
 
+/**
+ * OpenRouter (BYO key): the browser calls https://openrouter.ai/api/v1/chat/completions
+ * directly with the user's key — no proxy. `/v1/chat/completions` is appended by
+ * the engine, so the base stops at /api.
+ */
+export const OPENROUTER_API = "https://openrouter.ai/api";
+
+/** localStorage key for the user's OpenRouter API key (never shipped in the bundle). */
+export const OPENROUTER_KEY_STORAGE = "pi_openrouter_key";
+
+export interface CloudPreset {
+  /** OpenRouter model id, e.g. "anthropic/claude-sonnet-5". */
+  id: string;
+  label: string;
+  note: string;
+  accent: string;
+  contextWindow: number;
+}
+
+/**
+ * Frontier models reached through OpenRouter with the user's own key. Same pi
+ * agent loop and tools — the engine's remote path does the streaming, with
+ * native OpenAI tool_calls (serialized back into the <tool_call> text protocol
+ * that the rest of the pipeline already parses).
+ */
+export const CLOUD_PRESETS: CloudPreset[] = [
+  {
+    id: "anthropic/claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    note: "Excellent coding agent; the reference cloud brain.",
+    accent: "#d97757",
+    contextWindow: 200_000,
+  },
+  {
+    id: "openai/gpt-5.5",
+    label: "GPT-5.5",
+    note: "OpenAI flagship, strong at tools and UI work.",
+    accent: "#4aa8ff",
+    contextWindow: 256_000,
+  },
+  {
+    id: "google/gemini-3.5-flash",
+    label: "Gemini 3.5 Flash",
+    note: "Fast and cheap, great for quick iterations.",
+    accent: "#8b5cf6",
+    contextWindow: 1_000_000,
+  },
+  {
+    id: "moonshotai/kimi-k2.7-code",
+    label: "Kimi K2.7 Code",
+    note: "Open-weights coding model, very good agentic behavior.",
+    accent: "#2fe6b0",
+    contextWindow: 256_000,
+  },
+  {
+    id: "deepseek/deepseek-v3.2",
+    label: "DeepSeek V3.2",
+    note: "Budget-friendly generalist with solid coding.",
+    accent: "#ffb454",
+    contextWindow: 160_000,
+  },
+];
+
 export const SYSTEM_PROMPT = `You are Soyuz, the Pi Agent — a sharp, fast coding assistant.
 Reason briefly inside <think> ... </think>, then answer.
 When the user asks for a web app, page, game, tool, or any visual UI, output ONE complete, self-contained HTML file with inline CSS and JavaScript inside a single \`\`\`html code block. Do not use external files. Only use CDNs if strictly necessary. Make it polished, responsive and genuinely nice-looking.

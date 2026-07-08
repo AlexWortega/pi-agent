@@ -248,12 +248,132 @@ function createBashStubTool(): AgentTool<typeof bashSchema> {
   };
 }
 
+/* -------------------------------------------------------------------- grep --- */
+
+const grepSchema = Type.Object({
+  pattern: Type.String({ description: "Regular expression to search for (JavaScript syntax)" }),
+  path: Type.Optional(Type.String({ description: "File or directory to search in (defaults to the project root)" })),
+  ignoreCase: Type.Optional(Type.Boolean({ description: "Case-insensitive search (default false)" })),
+  literal: Type.Optional(Type.Boolean({ description: "Treat pattern as a literal string, not a regex (default false)" })),
+  maxResults: Type.Optional(Type.Number({ description: "Maximum number of matching lines to return (default 100)" })),
+});
+
+const GREP_MAX_RESULTS = 100;
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function createGrepTool(fs: FsBackend, cwd: string): AgentTool<typeof grepSchema> {
+  return {
+    name: "grep",
+    label: "grep",
+    description:
+      "Search file contents for a regular expression. Returns matching lines as path:line: text. Searches the whole project by default; pass path to narrow to a file or directory.",
+    parameters: grepSchema,
+    async execute(_id, { pattern, path, ignoreCase, literal, maxResults }: Static<typeof grepSchema>) {
+      const source = literal ? escapeRegExp(pattern) : pattern;
+      let re: RegExp;
+      try {
+        re = new RegExp(source, ignoreCase ? "i" : undefined);
+      } catch (e) {
+        throw new Error(`Invalid regex: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      const abs = path ? resolveToCwd(path, cwd) : cwd;
+      const stat = await fs.stat(abs);
+      if (!stat) throw new Error(`Path not found: ${path ?? cwd}`);
+      const files = stat.kind === "file" ? [abs] : await fs.walk(abs);
+      const limit = Math.max(1, maxResults ?? GREP_MAX_RESULTS);
+
+      const out: string[] = [];
+      let truncated = false;
+      for (const file of files) {
+        let text: string;
+        try {
+          text = await fs.readText(file);
+        } catch {
+          continue; // unreadable/binary — skip
+        }
+        const lines = text.split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          if (re.test(lines[i])) {
+            const rel = file.startsWith(cwd + "/") ? file.slice(cwd.length + 1) : file;
+            const line = lines[i].length > 500 ? lines[i].slice(0, 500) + "…" : lines[i];
+            out.push(`${rel}:${i + 1}: ${line}`);
+            if (out.length >= limit) {
+              truncated = true;
+              break;
+            }
+          }
+        }
+        if (truncated) break;
+      }
+      if (out.length === 0) return textResult("No matches found.");
+      let text = out.join("\n");
+      if (truncated) text += `\n\n[Truncated at ${limit} matches. Narrow the pattern or pass a path.]`;
+      return textResult(text);
+    },
+  };
+}
+
+/* -------------------------------------------------------------------- find --- */
+
+const findSchema = Type.Object({
+  pattern: Type.String({
+    description: 'Glob-style filename pattern, e.g. "*.ts", "src/**/*.css", "index*". Matched against project-relative paths.',
+  }),
+  path: Type.Optional(Type.String({ description: "Directory to search under (defaults to the project root)" })),
+});
+
+/** Convert a glob to a regex: ** = any path, * = any chars within a segment, ? = one char. */
+function globToRegExp(glob: string): RegExp {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i];
+    if (ch === "*") {
+      if (glob[i + 1] === "*") {
+        out += ".*";
+        i++;
+        if (glob[i + 1] === "/") i++; // "**/" also matches zero directories
+      } else {
+        out += "[^/]*";
+      }
+    } else if (ch === "?") {
+      out += "[^/]";
+    } else {
+      out += escapeRegExp(ch);
+    }
+  }
+  return new RegExp(`(^|/)${out}$`);
+}
+
+function createFindTool(fs: FsBackend, cwd: string): AgentTool<typeof findSchema> {
+  return {
+    name: "find",
+    label: "find",
+    description: "Find files by name using a glob pattern (*, **, ?). Returns project-relative paths.",
+    parameters: findSchema,
+    async execute(_id, { pattern, path }: Static<typeof findSchema>) {
+      const abs = path ? resolveToCwd(path, cwd) : cwd;
+      const re = globToRegExp(pattern);
+      const files = await fs.walk(abs);
+      const matches = files
+        .map((f) => (f.startsWith(cwd + "/") ? f.slice(cwd.length + 1) : f))
+        .filter((rel) => re.test(rel));
+      if (matches.length === 0) return textResult("No files found.");
+      return textResult(matches.join("\n"));
+    },
+  };
+}
+
 export function buildTools(fs: FsBackend, cwd: string): AgentTool<any>[] {
   return [
     createReadTool(fs, cwd),
     createWriteTool(fs, cwd),
     createEditTool(fs, cwd),
     createLsTool(fs, cwd),
+    createGrepTool(fs, cwd),
+    createFindTool(fs, cwd),
     createBashStubTool(),
   ];
 }

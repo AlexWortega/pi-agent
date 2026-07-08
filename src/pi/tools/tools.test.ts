@@ -88,4 +88,35 @@ describe("browser tools over the virtual fs", () => {
     expect(bash).toBeDefined();
     await expect(bash!.execute("t1", { command: "ls" } as any)).rejects.toThrow(/no shell|file tools/i);
   });
+
+  it("grep finds matching lines across the project with path:line prefixes", async () => {
+    await runText(byName(tools, "write"), { path: "index.html", content: "<h1>Hello</h1>\n<p>world</p>\n" });
+    await runText(byName(tools, "write"), { path: "js/app.js", content: "console.log('hello');\n" });
+    const out = await runText(byName(tools, "grep"), { pattern: "hello", ignoreCase: true });
+    expect(out).toContain("index.html:1:");
+    expect(out).toContain("js/app.js:1:");
+  });
+
+  it("grep literal mode escapes regex metacharacters", async () => {
+    await runText(byName(tools, "write"), { path: "a.js", content: "f(x+1)\n" });
+    const out = await runText(byName(tools, "grep"), { pattern: "f(x+1)", literal: true });
+    expect(out).toContain("a.js:1:");
+    await expect(runText(byName(tools, "grep"), { pattern: "f(x+1" })).rejects.toThrow(/invalid regex/i);
+  });
+
+  it("grep reports no matches and respects maxResults", async () => {
+    await runText(byName(tools, "write"), { path: "n.txt", content: "a\na\na\n" });
+    expect(await runText(byName(tools, "grep"), { pattern: "zzz-not-there" })).toContain("No matches");
+    const out = await runText(byName(tools, "grep"), { pattern: "a", path: "n.txt", maxResults: 2 });
+    expect(out).toContain("[Truncated at 2 matches");
+  });
+
+  it("find matches globs against relative paths", async () => {
+    await runText(byName(tools, "write"), { path: "index.html", content: "x" });
+    await runText(byName(tools, "write"), { path: "src/deep/style.css", content: "x" });
+    expect(await runText(byName(tools, "find"), { pattern: "*.css" })).toContain("src/deep/style.css");
+    expect(await runText(byName(tools, "find"), { pattern: "src/**/*.css" })).toContain("src/deep/style.css");
+    expect(await runText(byName(tools, "find"), { pattern: "index*" })).toContain("index.html");
+    expect(await runText(byName(tools, "find"), { pattern: "*.ts" })).toContain("No files found");
+  });
 });

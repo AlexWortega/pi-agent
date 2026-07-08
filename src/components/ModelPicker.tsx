@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { GenParams, ReasoningEffort } from "../types";
-import { MODEL_PRESETS } from "../config";
-import { customModelId, resolveModel } from "../lib/models";
+import { CLOUD_PRESETS, MODEL_PRESETS, OPENROUTER_KEY_STORAGE } from "../config";
+import { cloudModelId, customModelId, resolveModel } from "../lib/models";
 import { Chip, X, Check, Bolt, Satellite } from "./Icons";
 
 const EFFORTS: ReasoningEffort[] = ["low", "medium", "high"];
@@ -18,9 +18,36 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
   const [customUrl, setCustomUrl] = useState(
     currentId.startsWith("url:") ? currentId.slice(4) : "",
   );
+  const [apiKey, setApiKey] = useState(() => {
+    try {
+      return localStorage.getItem(OPENROUTER_KEY_STORAGE) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [customCloud, setCustomCloud] = useState(
+    currentId.startsWith("or:") && !CLOUD_PRESETS.some((c) => "or:" + c.id === currentId)
+      ? currentId.slice(3)
+      : "",
+  );
+  const hasKey = apiKey.trim().length > 0;
+  const saveKey = (value: string) => {
+    setApiKey(value);
+    const trimmed = value.trim();
+    try {
+      if (trimmed) localStorage.setItem(OPENROUTER_KEY_STORAGE, trimmed);
+      else localStorage.removeItem(OPENROUTER_KEY_STORAGE);
+    } catch {
+      /* private mode — key just won't persist */
+    }
+  };
+
   const current = resolveModel(currentId);
+  const isOpenRouterModel = currentId.startsWith("or:");
   const showReasoning = !!current.remote?.reasoning;
   const isRemote = !!current.remote;
+  // The RunPod/local-server toggle is SIQ-specific; OpenRouter always talks to openrouter.ai.
+  const showEndpointToggle = isRemote && !isOpenRouterModel;
   const remoteCtx = current.remote?.contextWindow ?? 0;
 
   return (
@@ -36,7 +63,7 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
           <div>
             <h2 className="font-semibold text-[15px]">Model</h2>
             <p className="text-[11.5px] text-[var(--color-ink-faint)]">
-              Local models download once and run on your GPU; cloud models run on RunPod — nothing to download.
+              Local models download once and run on your GPU; cloud models (RunPod or OpenRouter with your key) have nothing to download.
             </p>
           </div>
           <button className="btn btn-ghost p-2" onClick={onClose}>
@@ -115,11 +142,91 @@ export function ModelPicker({ currentId, onClose, onPick, params, onParams }: Pr
               is the Soyuz Pi Agent above.
             </p>
           </div>
+
+          {/* frontier models via OpenRouter (BYO key) */}
+          <div className="pt-2">
+            <div className="text-[12px] font-semibold text-[var(--color-ink-dim)] mb-1.5 px-1">
+              Frontier models · OpenRouter (your key)
+            </div>
+            <div className="rounded-xl border border-[var(--color-edge)] p-3 bg-[var(--color-panel-2)]/30 mb-2">
+              <div className="text-[12px] font-medium mb-1.5">OpenRouter API key</div>
+              <input
+                className="field text-[12px]"
+                type="password"
+                placeholder="sk-or-v1-…"
+                value={apiKey}
+                data-testid="openrouter-key"
+                onChange={(e) => saveKey(e.target.value)}
+              />
+              <p className="text-[10.5px] text-[var(--color-ink-faint)] mt-1.5">
+                Stored only in this browser (localStorage) and sent straight to openrouter.ai — no
+                middleman server.
+              </p>
+            </div>
+
+            {CLOUD_PRESETS.map((c) => {
+              const id = cloudModelId(c.id);
+              const selected = currentId === id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => hasKey && onPick(id)}
+                  disabled={!hasKey}
+                  title={hasKey ? c.id : "Paste your OpenRouter API key first"}
+                  className={`w-full text-left rounded-xl border p-3 flex items-start gap-3 transition mb-2 ${
+                    selected
+                      ? "border-[var(--color-pi)] bg-[var(--color-pi)]/8"
+                      : "border-[var(--color-edge)] hover:border-[var(--color-edge-2)] bg-[var(--color-panel-2)]/30"
+                  } ${hasKey ? "" : "opacity-50 cursor-not-allowed"}`}
+                >
+                  <span
+                    className="w-9 h-9 shrink-0 rounded-lg grid place-items-center"
+                    style={{ background: `color-mix(in oklab, ${c.accent} 22%, transparent)` }}
+                  >
+                    <Satellite className="w-4.5 h-4.5" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-center gap-2">
+                      <span className="text-[13.5px] font-medium">{c.label}</span>
+                      <span className="text-[9px] px-1.5 py-px rounded-full bg-[var(--color-pi)]/15 text-[var(--color-pi-2)] border border-[var(--color-pi)]/30">
+                        cloud
+                      </span>
+                      <span className="ml-auto text-[10.5px] text-[var(--color-ink-faint)] font-mono truncate max-w-[45%]">{c.id}</span>
+                    </span>
+                    <span className="block text-[11.5px] text-[var(--color-ink-faint)] mt-0.5 leading-snug">
+                      {c.note}
+                    </span>
+                  </span>
+                  {selected && <Check className="w-4 h-4 text-[var(--color-pi-2)] mt-1 shrink-0" />}
+                </button>
+              );
+            })}
+
+            {/* custom openrouter model id */}
+            <div className="rounded-xl border border-[var(--color-edge)] p-3 bg-[var(--color-panel-2)]/30">
+              <div className="text-[12px] font-medium mb-1.5">Custom OpenRouter model</div>
+              <div className="flex gap-2">
+                <input
+                  className="field text-[12px]"
+                  placeholder="vendor/model-id (see openrouter.ai/models)"
+                  value={customCloud}
+                  onChange={(e) => setCustomCloud(e.target.value)}
+                />
+                <button
+                  className="btn btn-primary shrink-0"
+                  disabled={!hasKey || !customCloud.trim().includes("/")}
+                  onClick={() => onPick(cloudModelId(customCloud))}
+                >
+                  <Bolt className="w-3.5 h-3.5" /> Use
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* params */}
         <div className="px-5 py-4 border-t border-[var(--color-edge)] space-y-3">
-          {isRemote && (
+          {showEndpointToggle && (
             <div className="space-y-1.5">
               <div className="text-[12px] text-[var(--color-ink-dim)]">
                 Run on

@@ -232,6 +232,14 @@ export function localStream(
           // Remote-only (SIQ-1) reasoning controls; ignored by the in-browser path.
           thinking: reasoning?.thinking,
           effort: reasoning?.effort,
+          // Native OpenAI tool_calls on direct-API endpoints (OpenRouter). The
+          // engine only forwards these when remote.apiKey is set; the text
+          // <tool_call> protocol stays the source of truth everywhere else.
+          tools: (context.tools ?? []).map((t) => ({
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters as unknown as Record<string, unknown>,
+          })),
           // Remote-only: cloud worker lifecycle → a live, honest status (no frozen spinner).
           onStatus: (status) => {
             const phase =

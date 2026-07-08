@@ -26,6 +26,8 @@ export const WORKSPACE_ROOT = "/workspace";
 
 /** Safety cap so a confused small model can't loop forever on tool calls. */
 const MAX_TURNS = 6;
+/** Frontier models via OpenRouter are reliable with tools; give them room for real multi-step work. */
+const MAX_TURNS_CLOUD = 24;
 
 export const AGENT_SYSTEM_PROMPT = `You are Soyuz, the Pi Agent — a fast in-browser coding agent. You build a self-contained web app at ${WORKSPACE_ROOT}/index.html, shown live in the preview pane.
 
@@ -37,6 +39,22 @@ To create or rewrite the app, call the \`write\` tool ONCE:
 Write the whole file in that single call and finish it.
 
 For a small change to an existing file, use \`edit\`. Do NOT explore with shell commands — there is no shell, and you do not need to inspect anything before the first write.`;
+
+/**
+ * Frontier models via OpenRouter handle multi-step tool work reliably, so the
+ * prompt is the pi-style one: work through tools against the virtual project,
+ * multiple files allowed, no single-shot constraints.
+ */
+export const CLOUD_SYSTEM_PROMPT = `You are Pi Agent, a coding agent running fully in the user's browser against a virtual project at ${WORKSPACE_ROOT}.
+
+The project is a static web app. Its entry point is ${WORKSPACE_ROOT}/index.html, rendered live in a preview pane next to the chat. You may split code into multiple files (css/js) referenced relatively from index.html.
+
+Use the tools (write, edit, read, ls, grep, find) for ALL file work:
+- Create or overwrite files with write. Make index.html a complete document (<!doctype html> …).
+- For targeted changes to existing files use edit with exact-text replacements; read first if unsure of the current content.
+- grep/find help you navigate the project.
+
+Constraints of the environment: there is no shell, no package manager, and no build step — ship plain HTML/CSS/JS (external CDNs only if strictly necessary). Keep prose brief; put the work in the files. When the task is done, summarize what you changed in one or two sentences.`;
 
 export interface AgentRun {
   stream: EventStream<AgentEvent, AgentMessage[]>;
@@ -51,6 +69,11 @@ export interface StartRunOptions {
   systemPrompt?: string;
   /** Sampling temperature (default 0.1). */
   temperature?: number;
+  /**
+   * Frontier model via OpenRouter: multi-file system prompt, more turns, and no
+   * Soyuz-specific early stops (those exist to rein in a 4B model).
+   */
+  cloud?: boolean;
 }
 
 export function startAgentRun(opts: StartRunOptions): AgentRun {
@@ -58,7 +81,7 @@ export function startAgentRun(opts: StartRunOptions): AgentRun {
   const tools = buildTools(fs, WORKSPACE_ROOT);
 
   const context: AgentContext = {
-    systemPrompt: opts.systemPrompt ?? AGENT_SYSTEM_PROMPT,
+    systemPrompt: opts.systemPrompt ?? (opts.cloud ? CLOUD_SYSTEM_PROMPT : AGENT_SYSTEM_PROMPT),
     messages: [...opts.history],
     // Tools are always available — Soyuz reliably calls `write` with the full
     // file at temp 0.1; we let it, and the HTML bridge covers the rare case it
@@ -66,6 +89,7 @@ export function startAgentRun(opts: StartRunOptions): AgentRun {
     tools,
   };
 
+  const maxTurns = opts.cloud ? MAX_TURNS_CLOUD : MAX_TURNS;
   let turns = 0;
   const seenToolCalls = new Set<string>();
   const config: AgentLoopConfig = {
@@ -75,29 +99,35 @@ export function startAgentRun(opts: StartRunOptions): AgentRun {
     temperature: opts.temperature ?? 0.1,
     shouldStopAfterTurn: (ctx) => {
       turns += 1;
-      if (turns >= MAX_TURNS) return true;
-
-      // The app is built once index.html has been written successfully — stop
-      // instead of letting the model write it again next turn.
-      const wroteIndex = ctx.toolResults?.some(
-        (r) => !r.isError && r.toolName === "write" && /index\.html/.test(JSON.stringify(r.content)),
-      );
-      if (wroteIndex) {
-        console.debug(`[pi] stop: index.html written (turn ${turns})`);
-        return true;
-      }
+      if (turns >= maxTurns) return true;
 
       const blocks = ctx.message.content;
-      const text = blocks
-        .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
-        .map((b) => b.text)
-        .join("\n");
 
-      // The build is done once a complete HTML document has been emitted — stop
-      // instead of letting the model keep churning turns.
-      if (/```html[\s\S]*?```/i.test(text) || /<\/html\s*>/i.test(text)) {
-        console.debug(`[pi] stop: HTML document emitted (turn ${turns})`);
-        return true;
+      // Cloud frontier models stop on their own when done; the heuristics
+      // below exist to rein in the 4B local model and would cut legitimate
+      // multi-file work short. Keep only the repeated-call guard for cloud.
+      if (!opts.cloud) {
+        // The app is built once index.html has been written successfully — stop
+        // instead of letting the model write it again next turn.
+        const wroteIndex = ctx.toolResults?.some(
+          (r) => !r.isError && r.toolName === "write" && /index\.html/.test(JSON.stringify(r.content)),
+        );
+        if (wroteIndex) {
+          console.debug(`[pi] stop: index.html written (turn ${turns})`);
+          return true;
+        }
+
+        const text = blocks
+          .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+          .map((b) => b.text)
+          .join("\n");
+
+        // The build is done once a complete HTML document has been emitted — stop
+        // instead of letting the model keep churning turns.
+        if (/```html[\s\S]*?```/i.test(text) || /<\/html\s*>/i.test(text)) {
+          console.debug(`[pi] stop: HTML document emitted (turn ${turns})`);
+          return true;
+        }
       }
 
       // No-progress guard: if every tool call this turn repeats one we've
