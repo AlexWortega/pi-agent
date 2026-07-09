@@ -11,7 +11,7 @@ export function ClarifyPrompt({ req }: { req: ClarifyRequest }) {
   const [text, setText] = useState("");
   return (
     <div className="flex gap-2.5">
-      <div className="w-7 h-7 shrink-0 rounded-lg grid place-items-center bg-gradient-to-br from-[var(--color-pi)] to-[var(--color-soyuz)] mt-0.5">
+      <div className="w-7 h-7 shrink-0 rounded-lg grid place-items-center bg-[var(--color-pi)] mt-0.5">
         <Bot className="w-4 h-4 text-white" />
       </div>
       <div className="flex-1 min-w-0 rounded-2xl border border-[var(--color-pi)]/40 bg-[var(--color-pi)]/5 p-3">

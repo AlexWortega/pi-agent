@@ -52,15 +52,13 @@ code {
   text-transform: none;
 }
 
-/* Faint grain + corner glow — the Nous "CRT" feel without third-party assets. */
+/* Flat backdrop (gradient glow removed). */
 .aurora {
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background:
-    radial-gradient(ellipse at 0% 0%, rgba(255, 189, 56, 0.18) 0%, transparent 55%),
-    radial-gradient(ellipse at 100% 100%, rgba(255, 255, 137, 0.06) 0%, transparent 60%);
+  background: none;
 }
 .grain {
   position: fixed;

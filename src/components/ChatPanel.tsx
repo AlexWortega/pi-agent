@@ -104,7 +104,7 @@ export function ChatPanel({ project, generating, eng, onSend, onStop, onOpenArti
 function Welcome({ onPick }: { onPick: (t: string) => void }) {
   return (
     <div className="pt-10 text-center">
-      <div className="w-14 h-14 mx-auto rounded-2xl grid place-items-center bg-gradient-to-br from-[var(--color-pi)] to-[var(--color-soyuz)] shadow-xl shadow-[var(--color-pi)]/30">
+      <div className="w-14 h-14 mx-auto rounded-2xl grid place-items-center bg-[var(--color-pi)] shadow-xl shadow-[var(--color-pi)]/30">
         <Satellite className="w-7 h-7 text-white" />
       </div>
       <h1 className="mt-4 text-xl font-semibold">Build apps with Pi Agent</h1>
@@ -132,7 +132,7 @@ function ModelLoading({ eng }: { eng: EngineState }) {
   const mb = (b: number) => (b > 0 ? `${(b / 1024 / 1024).toFixed(0)} MB` : "");
   return (
     <div className="flex gap-2.5">
-      <div className="w-7 h-7 shrink-0 rounded-lg grid place-items-center bg-gradient-to-br from-[var(--color-soyuz)] to-[var(--color-pi)] mt-0.5">
+      <div className="w-7 h-7 shrink-0 rounded-lg grid place-items-center bg-[var(--color-pi)] mt-0.5">
         <Satellite className="w-4 h-4 text-white" />
       </div>
       <div className="flex-1 min-w-0 max-w-sm">
@@ -141,7 +141,7 @@ function ModelLoading({ eng }: { eng: EngineState }) {
         </div>
         <div className="h-1.5 rounded-full bg-[var(--color-panel-2)] overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[var(--color-pi)] to-[var(--color-soyuz)] transition-[width] duration-200"
+            className="h-full rounded-full bg-[var(--color-pi)] transition-[width] duration-200"
             style={{ width: `${Math.max(3, pct)}%` }}
           />
         </div>
@@ -177,7 +177,7 @@ function Bubble({
   if (m.role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-gradient-to-br from-[var(--color-pi)] to-[#6244e0] px-4 py-2.5 text-[14px] text-white whitespace-pre-wrap shadow-lg shadow-[var(--color-pi)]/20">
+        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-[var(--color-pi)] px-4 py-2.5 text-[14px] text-white whitespace-pre-wrap shadow-lg shadow-[var(--color-pi)]/20">
           {m.content}
         </div>
       </div>
@@ -189,7 +189,7 @@ function Bubble({
 
   return (
     <div className="flex gap-2.5">
-      <div className="w-7 h-7 shrink-0 rounded-lg grid place-items-center bg-gradient-to-br from-[var(--color-soyuz)] to-[var(--color-pi)] mt-0.5">
+      <div className="w-7 h-7 shrink-0 rounded-lg grid place-items-center bg-[var(--color-pi)] mt-0.5">
         <Satellite className="w-4 h-4 text-white" />
       </div>
       <div className="min-w-0 flex-1">

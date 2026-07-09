@@ -195,7 +195,7 @@ function ModelLoading({ eng }: { eng: EngineState }) {
         </div>
         <div className="h-1.5 rounded-full bg-[var(--color-panel-2)] overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[var(--color-pi)] to-[var(--color-soyuz)] transition-[width] duration-200"
+            className="h-full rounded-full bg-[var(--color-pi)] transition-[width] duration-200"
             style={{ width: `${Math.max(3, pct)}%` }}
           />
         </div>

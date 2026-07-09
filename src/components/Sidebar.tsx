@@ -19,7 +19,7 @@ export function Sidebar({ projects, activeId, onSelect, onCreate, onDelete, onRe
     <aside className="w-64 shrink-0 h-full glass border-r border-[var(--color-edge)] flex flex-col">
       <div className="px-4 pt-4 pb-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl grid place-items-center bg-gradient-to-br from-[var(--color-pi)] to-[var(--color-soyuz)] shadow-lg shadow-[var(--color-pi)]/30">
+          <div className="w-9 h-9 rounded-xl grid place-items-center bg-[var(--color-pi)] shadow-lg shadow-[var(--color-pi)]/30">
             <Satellite className="w-5 h-5 text-white" />
           </div>
           <div className="leading-tight">
