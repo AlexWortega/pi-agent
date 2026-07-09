@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getFsBackend } from "../pi/fs/backend";
 import { WORKSPACE_ROOT } from "../pi/runtime";
+import { inlineAssets } from "../lib/inlineAssets";
 import { Code, Eye, Download, External, Refresh, Satellite, Trash } from "./Icons";
 
 interface Props {
@@ -44,7 +45,18 @@ export function WorkspacePanel({ fsVersion, running, liveHtml, onClear }: Props)
         PREVIEW_CANDIDATES.find((p) => all.includes(p)) ?? all.find(isHtml) ?? null;
       if (previewPath) {
         try {
-          setPreviewHtml(await fs.readText(previewPath));
+          const raw = await fs.readText(previewPath);
+          // srcDoc can't resolve relative css/js against the virtual FS —
+          // inline workspace-local assets so multi-file apps render correctly.
+          const baseDir = previewPath.slice(0, previewPath.lastIndexOf("/")) || "/";
+          const inlined = await inlineAssets(raw, baseDir, async (p) => {
+            try {
+              return await fs.readText(p);
+            } catch {
+              return null;
+            }
+          });
+          if (!cancelled) setPreviewHtml(inlined);
         } catch {
           setPreviewHtml("");
         }

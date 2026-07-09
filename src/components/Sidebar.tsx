@@ -108,7 +108,7 @@ export function Sidebar({ projects, activeId, onSelect, onCreate, onDelete, onRe
       </div>
 
       <div className="px-4 py-3 border-t border-[var(--color-edge)] text-[10.5px] text-[var(--color-ink-faint)] leading-relaxed">
-        Inference: llama.cpp WebGPU
+        Inference: llama.cpp WebGPU · or your OpenRouter key
         <br />
         <a
           className="text-[var(--color-ink-dim)] hover:text-[var(--color-pi-2)]"

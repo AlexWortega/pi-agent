@@ -117,7 +117,7 @@ export function AgentChat({ messages, running, eng, onSend, onStop }: Props) {
             )}
           </div>
           <div className="text-center text-[10.5px] text-[var(--color-ink-faint)] mt-2">
-            Real pi agent loop · runs 100% locally on your GPU · edits files with tools · ⏎ send · ⇧⏎ newline
+            Real pi agent loop · local WebGPU or cloud with your key · edits files with tools · ⏎ send · ⇧⏎ newline
           </div>
         </div>
       </div>
