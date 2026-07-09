@@ -83,10 +83,11 @@ describe("browser tools over the virtual fs", () => {
     await expect(byName(tools, "read").execute("t1", { path: "nope.txt" } as any)).rejects.toThrow(/not found/i);
   });
 
-  it("bash is a stub that redirects to the file tools", async () => {
+  it("bash is a real VM-backed tool (present, with honest constraints in its description)", () => {
     const bash = tools.find((t) => t.name === "bash");
     expect(bash).toBeDefined();
-    await expect(bash!.execute("t1", { command: "ls" } as any)).rejects.toThrow(/no shell|file tools/i);
+    expect(bash!.description).toMatch(/Linux VM/i);
+    expect(bash!.description).toMatch(/NO network/i);
   });
 
   it("grep finds matching lines across the project with path:line prefixes", async () => {

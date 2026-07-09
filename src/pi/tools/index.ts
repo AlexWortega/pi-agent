@@ -228,22 +228,30 @@ function createLsTool(fs: FsBackend, cwd: string): AgentTool<typeof lsSchema> {
 /* ------------------------------------------------------------------- bash ---- */
 
 const bashSchema = Type.Object({
-  command: Type.String({ description: "Shell command (NOT available — use the file tools instead)" }),
+  command: Type.String({ description: "Shell command or multi-line script to run in the project root" }),
+  timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (default 30, max 120)" })),
 });
 
-// Soyuz is trained to reach for bash; if it's not registered the loop returns a
-// bare "Tool bash not found". Register a stub that redirects it to the real
-// file tools so it adapts instead of stalling.
-function createBashStubTool(): AgentTool<typeof bashSchema> {
+/**
+ * Real bash, backed by a Linux VM (v86) running fully in the browser. First
+ * call boots the VM (~10-20s); the workspace is synced into the guest before
+ * the command and back after, so file changes made by the shell are real.
+ */
+function createBashTool(fs: FsBackend, cwd: string): AgentTool<typeof bashSchema> {
   return {
     name: "bash",
     label: "bash",
-    description: "Run a shell command. NOT available in the browser — use ls/read/edit/write instead.",
+    description:
+      "Run a shell command (or multi-line script) in a Linux VM in the browser, with the project as the working directory. Busybox userland: sh, ls, cat, grep, sed, awk, find, diff, wc, head, tail, sort, mkdir, mv, cp, rm. NO network and NO git/python/node/npm — use the other tools for those workflows. File changes persist to the project.",
     parameters: bashSchema,
-    async execute() {
-      throw new Error(
-        "There is no shell in this browser environment. Use the file tools instead: `ls` to list files, `read` to view a file, `edit` for a small change, `write` to create/overwrite a file.",
-      );
+    async execute(_id, { command, timeout }: Static<typeof bashSchema>) {
+      const { browserVm } = await import("../../vm/vm");
+      const timeoutMs = Math.min(Math.max(timeout ?? 30, 1), 120) * 1000;
+      const { output, exitCode } = await browserVm.exec(fs, cwd, command, timeoutMs);
+      if (exitCode !== 0) {
+        throw new Error(`exit code ${exitCode}\n${output || "(no output)"}`);
+      }
+      return textResult(output || "(no output)");
     },
   };
 }
@@ -374,6 +382,6 @@ export function buildTools(fs: FsBackend, cwd: string): AgentTool<any>[] {
     createLsTool(fs, cwd),
     createGrepTool(fs, cwd),
     createFindTool(fs, cwd),
-    createBashStubTool(),
+    createBashTool(fs, cwd),
   ];
 }

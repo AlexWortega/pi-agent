@@ -11,6 +11,7 @@ import { useCallback, useRef, useState } from "react";
 import type { AssistantMessage, Message, Model } from "@earendil-works/pi-ai";
 import { startAgentRun, WORKSPACE_ROOT } from "./runtime";
 import { getFsBackend } from "./fs/backend";
+import { loadRepoMeta } from "../lib/github";
 import { extractHtmlArtifact } from "../lib/parse";
 
 /** Remove fenced ```html``` blocks from chat text (they live in the file now). */
@@ -146,11 +147,13 @@ export function useAgent(prepare: PrepareModel): UseAgentResult {
       // One mode: tools available, prompt directs Soyuz to a single `write` of
       // the full file (which it does cleanly at temp 0.1). The HTML bridge
       // covers the rare case it emits a raw ```html block instead.
+      const repoMeta = await loadRepoMeta(getFsBackend()).catch(() => null);
       const run = startAgentRun({
         prompt: trimmed,
         history: transcriptRef.current,
         model: prepared.model,
         cloud: prepared.cloud,
+        repo: repoMeta ? `${repoMeta.owner}/${repoMeta.repo}@${repoMeta.branch}` : undefined,
       });
       abortRef.current = run.abort;
 
@@ -242,7 +245,9 @@ export function useAgent(prepare: PrepareModel): UseAgentResult {
         const indexPath = `${WORKSPACE_ROOT}/index.html`;
         const hasIndex = await getFsBackend().exists(indexPath);
         console.debug(`[pi] ⏹ run done — index.html exists: ${hasIndex}, captured html: ${!!lastHtmlRef.current}`);
-        if (!hasIndex && lastHtmlRef.current) {
+        // Never salvage chat-HTML into an imported repo — an index.html the
+        // repo doesn't have would show up in the push diff as a new file.
+        if (!hasIndex && lastHtmlRef.current && !repoMeta) {
           try {
             await getFsBackend().writeText(indexPath, lastHtmlRef.current);
             setFsVersion((v) => v + 1);

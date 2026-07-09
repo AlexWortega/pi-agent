@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getFsBackend } from "../pi/fs/backend";
 import { WORKSPACE_ROOT } from "../pi/runtime";
 import { inlineAssets } from "../lib/inlineAssets";
+import { RepoBar } from "./RepoBar";
 import { Code, Eye, Download, External, Refresh, Satellite, Trash } from "./Icons";
 
 interface Props {
@@ -30,6 +31,8 @@ export function WorkspacePanel({ fsVersion, running, liveHtml, onClear }: Props)
   const [content, setContent] = useState<string>("");
   const [previewHtml, setPreviewHtml] = useState<string>("");
   const [view, setView] = useState<"preview" | "code">("preview");
+  // Bumped by the RepoBar (import/detach) — mutations that happen outside the agent.
+  const [localVersion, setLocalVersion] = useState(0);
 
   // Re-read the virtual filesystem whenever a tool mutates it.
   useEffect(() => {
@@ -86,7 +89,7 @@ export function WorkspacePanel({ fsVersion, running, liveHtml, onClear }: Props)
     };
     // selected intentionally omitted: re-reads are driven by fsVersion only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fsVersion]);
+  }, [fsVersion, localVersion]);
 
   const pickFile = async (path: string) => {
     setSelected(path);
@@ -98,7 +101,28 @@ export function WorkspacePanel({ fsVersion, running, liveHtml, onClear }: Props)
     }
   };
 
-  const download = () => {
+  const download = async () => {
+    // Multi-file workspace → zip everything; single file → download it directly.
+    if (files.length > 1) {
+      const { default: JSZip } = await import("jszip");
+      const zip = new JSZip();
+      const fs = getFsBackend();
+      for (const f of files) {
+        try {
+          zip.file(rel(f), await fs.readText(f));
+        } catch {
+          /* skip unreadable */
+        }
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "workspace.zip";
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      return;
+    }
     const html = previewHtml || content;
     if (!html) return;
     const blob = new Blob([html], { type: "text/html" });
@@ -160,11 +184,13 @@ export function WorkspacePanel({ fsVersion, running, liveHtml, onClear }: Props)
           <button className="btn btn-ghost py-1.5" onClick={openExternal} disabled={!previewHtml} title="Open preview in a new tab">
             <External className="w-4 h-4" />
           </button>
-          <button className="btn btn-primary py-1.5" onClick={download} disabled={!previewHtml && !content}>
-            <Download className="w-4 h-4" /> Download
+          <button className="btn btn-primary py-1.5" onClick={download} disabled={!hasFiles && !previewHtml && !content}>
+            <Download className="w-4 h-4" /> {files.length > 1 ? "Zip" : "Download"}
           </button>
         </div>
       </div>
+
+      <RepoBar fsVersion={fsVersion + localVersion} running={running} onMutated={() => setLocalVersion((v) => v + 1)} />
 
       <div className="flex-1 min-h-0 flex">
         {/* file tree */}
