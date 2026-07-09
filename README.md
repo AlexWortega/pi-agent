@@ -8,6 +8,18 @@ No server, no API key, nothing leaves your machine.
 
 ## What you get
 
+- **GitHub repos, client-side** — import any repo/branch into the workspace (private ones with
+  your fine-grained PAT, stored only in localStorage). The agent edits it with its tools; **Commit
+  & Push** creates a real commit through the GitHub Data API (blobs -> tree -> commit -> fast-forward
+  ref) straight from the browser. No git binary, no server.
+- **A Linux VM in the browser** — the `bash` tool is real: a buildroot Linux (busybox `sh`, `grep`,
+  `sed`, `awk`, `find`, `diff`, ...) boots on demand via the [v86](https://github.com/copy/v86) wasm
+  x86 emulator (~8MB, lazy). The workspace is synced into the guest before every command and back
+  after, so shell edits, tool edits and repo pushes all see the same tree. No network and no
+  git/python/node inside the VM — it's for inspecting and transforming files.
+- **Frontier models via OpenRouter (your key)** — run the same agent loop on Claude / GPT / Gemini /
+  Kimi / DeepSeek; the key lives in localStorage and requests go straight to openrouter.ai.
+
 - **Projects** — each project is a chat workspace with its own model, history and generated apps,
   saved in `localStorage`. Create/rename/delete in the sidebar.
 - **Live canvas** — when Soyuz emits a `\`\`\`html` block it renders instantly in a sandboxed iframe.
