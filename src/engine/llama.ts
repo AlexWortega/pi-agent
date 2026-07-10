@@ -287,16 +287,17 @@ class LlamaEngine {
     let buf = "";
     // Accumulate native OpenAI tool_calls across SSE chunks (keyed by index).
     const pendingCalls: Record<number, { name: string; args: string }> = {};
-    // Queue watchdog (see below): flags set inside the parse-try (whose catch
-    // exists to swallow partial-JSON errors, so we must not throw in there).
+    // Queue watchdog: `queuedSince` is managed inside the parse-try (whose
+    // catch exists to swallow partial-JSON errors, so we must not throw in
+    // there); the deadline is checked here on EVERY chunk — the proxy keeps
+    // the connection alive with comment lines long after status events stop.
     let queuedSince = 0;
-    let queueTimedOut = false;
     const QUEUE_LIMIT_MS = 180_000;
     try {
       while (cut === null) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (queueTimedOut) {
+        if (queuedSince && Date.now() - queuedSince > QUEUE_LIMIT_MS) {
           throw new Error(
             "The SIQ-1 cloud endpoint is not picking up jobs (queued for over 3 minutes). " +
               "It may be cold-starting or out of capacity — try again in a few minutes, " +
@@ -334,7 +335,6 @@ class LlamaEngine {
               // actionable error instead of an infinite "starting cloud GPU…".
               if (obj.siq_status === "IN_QUEUE") {
                 if (queuedSince === 0) queuedSince = Date.now();
-                else if (Date.now() - queuedSince > QUEUE_LIMIT_MS) queueTimedOut = true;
               } else {
                 queuedSince = 0; // worker picked it up (IN_PROGRESS etc.)
               }
@@ -346,7 +346,10 @@ class LlamaEngine {
             const c = delta.content ?? "";
             if (rc) reasoning += rc;
             if (c) answer += c;
-            if (rc || c) emit();
+            if (rc || c) {
+              queuedSince = 0; // real tokens are flowing — the queue is behind us
+              emit();
+            }
             // Accumulate native tool_calls fragments.
             if (useNativeTools && Array.isArray(delta.tool_calls)) {
               for (const tc of delta.tool_calls as Array<{ index: number; function?: { name?: string; arguments?: string } }>) {
