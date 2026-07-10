@@ -287,10 +287,22 @@ class LlamaEngine {
     let buf = "";
     // Accumulate native OpenAI tool_calls across SSE chunks (keyed by index).
     const pendingCalls: Record<number, { name: string; args: string }> = {};
+    // Queue watchdog (see below): flags set inside the parse-try (whose catch
+    // exists to swallow partial-JSON errors, so we must not throw in there).
+    let queuedSince = 0;
+    let queueTimedOut = false;
+    const QUEUE_LIMIT_MS = 180_000;
     try {
       while (cut === null) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (queueTimedOut) {
+          throw new Error(
+            "The SIQ-1 cloud endpoint is not picking up jobs (queued for over 3 minutes). " +
+              "It may be cold-starting or out of capacity — try again in a few minutes, " +
+              "or pick another model in the picker (OpenRouter with your key, or the local Soyuz).",
+          );
+        }
         buf += dec.decode(value, { stream: true });
         const lines = buf.split("\n");
         buf = lines.pop() ?? "";
@@ -315,7 +327,20 @@ class LlamaEngine {
           }
           try {
             const obj = JSON.parse(data);
-            if (obj?.siq_status) { opts.onStatus?.(obj.siq_status); continue; }
+            if (obj?.siq_status) {
+              // Fail fast when the job never leaves the queue: a healthy
+              // endpoint assigns a worker within a couple of minutes; endless
+              // IN_QUEUE means it's dead/out of capacity — surface a real,
+              // actionable error instead of an infinite "starting cloud GPU…".
+              if (obj.siq_status === "IN_QUEUE") {
+                if (queuedSince === 0) queuedSince = Date.now();
+                else if (Date.now() - queuedSince > QUEUE_LIMIT_MS) queueTimedOut = true;
+              } else {
+                queuedSince = 0; // worker picked it up (IN_PROGRESS etc.)
+              }
+              opts.onStatus?.(obj.siq_status);
+              continue;
+            }
             const delta = obj?.choices?.[0]?.delta ?? {};
             const rc = delta.reasoning_content ?? "";
             const c = delta.content ?? "";

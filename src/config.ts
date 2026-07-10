@@ -38,7 +38,10 @@ export const LLM_SERVER: string =
  * point VITE_SIQ_API there as a fallback if Railway is down.
  */
 export const SIQ_API: string = (
-  import.meta.env.VITE_SIQ_API ?? (LOG_API ? `${LOG_API}/api/siq` : "https://alexwortega-siq-proxy.hf.space/api/siq")
+  // Default to the HF Space proxy — it holds the CURRENT RunPod endpoint id
+  // (the Railway deployment still points at a deleted endpoint, which queued
+  // jobs forever and looked like "the model never edits anything").
+  import.meta.env.VITE_SIQ_API ?? "https://alexwortega-siq-proxy.hf.space/api/siq"
 ).replace(/\/+$/, "");
 
 /**
@@ -64,8 +67,8 @@ export const MODEL_PRESETS: ModelPreset[] = [
     // contextWindow matches the serving worker's N_CTX (65536).
     remote: { endpoint: SIQ_API, model: "siq", reasoning: true, contextWindow: 65536 },
     sizeLabel: "cloud · 35B-A3B",
-    note: "Big reasoning model (Qwen3.6-35B-A3B MoE + Soyuz + RFT) served on RunPod serverless — nothing downloads, no WebGPU needed. Supports thinking + reasoning effort.",
-    verified: true,
+    note: "Big reasoning model (Qwen3.6-35B-A3B MoE + Soyuz + RFT) on RunPod serverless — nothing downloads, no WebGPU needed. Cold starts can take minutes; if it stays queued the run aborts with a clear error.",
+    verified: false,
     accent: "#7c5cff",
   },
   {
@@ -84,7 +87,11 @@ export const MODEL_PRESETS: ModelPreset[] = [
   },
 ];
 
-export const DEFAULT_MODEL_ID = "siq1-35b";
+// Default to the LOCAL model: it needs no server and always works on a WebGPU
+// browser. The SIQ cloud endpoint proved operationally flaky (deleted RunPod
+// endpoint → jobs queued forever and the agent "never edited anything");
+// it stays in the picker, but a broken default is worse than a heavy one.
+export const DEFAULT_MODEL_ID = "soyuz-4b";
 
 /**
  * OpenRouter (BYO key): the browser calls https://openrouter.ai/api/v1/chat/completions
