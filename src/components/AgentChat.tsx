@@ -4,6 +4,7 @@ import type { EngineState } from "../App";
 import { renderMarkdown } from "../lib/parse";
 import { useStats } from "../pi/stats";
 import { Send, Stop, Satellite, Check, X, Code } from "./Icons";
+import { OPENROUTER_KEY_STORAGE } from "../config";
 
 /**
  * Pre-content indicator: while the model is working but hasn't emitted any text
@@ -275,6 +276,27 @@ function ToolCard({ m }: { m: Extract<UiMessage, { kind: "tool" }> }) {
 }
 
 function Welcome({ onPick }: { onPick: (t: string) => void }) {
+  const [key, setKey] = useState(() => {
+    try {
+      return localStorage.getItem(OPENROUTER_KEY_STORAGE) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [saved, setSaved] = useState(false);
+  const saveKey = (value: string) => {
+    setKey(value);
+    setSaved(false);
+    try {
+      const t = value.trim();
+      if (t) localStorage.setItem(OPENROUTER_KEY_STORAGE, t);
+      else localStorage.removeItem(OPENROUTER_KEY_STORAGE);
+      if (t) setSaved(true);
+    } catch {
+      /* private mode */
+    }
+  };
+
   return (
     <div className="pt-10 text-center">
       <div className="w-14 h-14 mx-auto rounded-2xl grid place-items-center bg-[var(--color-pi)] shadow-xl shadow-[var(--color-pi)]/30">
@@ -282,9 +304,32 @@ function Welcome({ onPick }: { onPick: (t: string) => void }) {
       </div>
       <h1 className="mt-4 text-xl font-semibold">The real Pi Agent, in your browser</h1>
       <p className="mt-1.5 text-[13.5px] text-[var(--color-ink-dim)] max-w-md mx-auto">
-        Soyuz drives the actual earendil-works/pi agent loop — it reads, writes and edits files
-        with tools in a virtual project, all 100% local on your GPU.
+        The actual earendil-works/pi agent loop, running against a virtual project in your browser —
+        frontier models via your OpenRouter key, or the local Soyuz model on your GPU.
       </p>
+
+      {!key.trim() && (
+        <div className="mt-5 max-w-md mx-auto text-left rounded-xl border border-[var(--color-pi)]/40 bg-[var(--color-pi)]/8 px-4 py-3">
+          <div className="text-[12.5px] font-medium mb-1.5">
+            Paste your <a href="https://openrouter.ai/keys" target="_blank" rel="noopener" className="text-[var(--color-pi-2)] underline">OpenRouter API key</a> to use Claude / GPT / Gemini
+          </div>
+          <input
+            className="field text-[12.5px] w-full"
+            type="password"
+            placeholder="sk-or-v1-…"
+            data-testid="welcome-key"
+            onChange={(e) => saveKey(e.target.value)}
+          />
+          <div className="text-[10.5px] text-[var(--color-ink-faint)] mt-1.5">
+            Stays in this browser, goes straight to openrouter.ai. Prefer fully local? Pick Soyuz in
+            the model picker (top-left) — no key needed.
+          </div>
+        </div>
+      )}
+      {saved && (
+        <div className="mt-2 text-[11.5px] text-[var(--color-mint)]">✓ Key saved — ask for anything below</div>
+      )}
+
       <div className="mt-6 grid sm:grid-cols-2 gap-2.5 max-w-lg mx-auto text-left">
         {SUGGESTIONS.map((s) => (
           <button

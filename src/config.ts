@@ -87,11 +87,11 @@ export const MODEL_PRESETS: ModelPreset[] = [
   },
 ];
 
-// Default to the LOCAL model: it needs no server and always works on a WebGPU
-// browser. The SIQ cloud endpoint proved operationally flaky (deleted RunPod
-// endpoint → jobs queued forever and the agent "never edited anything");
-// it stays in the picker, but a broken default is worse than a heavy one.
-export const DEFAULT_MODEL_ID = "soyuz-4b";
+// Default to a frontier model via OpenRouter (BYO key — the welcome screen
+// asks for it): best agentic quality, nothing to download, and unlike the
+// SIQ endpoint it can't silently rot. Soyuz stays one click away for the
+// fully-local, no-key experience.
+export const DEFAULT_MODEL_ID = "or:anthropic/claude-sonnet-5";
 
 /**
  * OpenRouter (BYO key): the browser calls https://openrouter.ai/api/v1/chat/completions

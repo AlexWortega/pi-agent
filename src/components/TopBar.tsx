@@ -141,7 +141,9 @@ export function TopBar({ model, eng, webgpu, onOpenPicker, onReload }: Props) {
         )}
         {!isThis && eng.phase === "idle" && (
           <span className="text-[11.5px] text-[var(--color-ink-faint)]">
-            Model loads on your first message.
+            {model.id.startsWith("or:")
+              ? "Ready — runs via OpenRouter with your key."
+              : "Model loads on your first message."}
           </span>
         )}
       </div>
