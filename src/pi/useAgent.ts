@@ -157,23 +157,46 @@ export function useAgent(prepare: PrepareModel): UseAgentResult {
       });
       abortRef.current = run.abort;
 
+      // Deltas arrive per token; rendering each one re-parses markdown and
+      // regex-scans the whole text. Throttle UI flushes to ~10/s — the source
+      // of the "everything is janky while it types" feel.
+      const UPDATE_MS = 100;
+      let pendingUpdate: AssistantMessage | null = null;
+      let updateTimer: ReturnType<typeof setTimeout> | null = null;
+      let lastFlush = 0;
+      const flushUpdate = () => {
+        if (updateTimer) {
+          clearTimeout(updateTimer);
+          updateTimer = null;
+        }
+        const msg = pendingUpdate;
+        pendingUpdate = null;
+        if (!msg) return;
+        lastFlush = Date.now();
+        const id = ensureAssistant();
+        const { text: t, thinking } = extractAssistant(msg.content);
+        updateMessage(id, (m) =>
+          m.kind === "assistant" ? { ...m, text: t, thinking, streaming: true } : m,
+        );
+        // Stream the in-progress HTML into the canvas as it's typed.
+        const partial = extractHtmlArtifact(t);
+        if (partial) setLiveHtml(partial.html);
+      };
+
       try {
         for await (const event of run.stream) {
           switch (event.type) {
             case "message_update": {
               const msg = event.message as AssistantMessage;
               if (msg.role !== "assistant") break;
-              const id = ensureAssistant();
-              const { text: t, thinking } = extractAssistant(msg.content);
-              updateMessage(id, (m) =>
-                m.kind === "assistant" ? { ...m, text: t, thinking, streaming: true } : m,
-              );
-              // Stream the in-progress HTML into the canvas as it's typed.
-              const partial = extractHtmlArtifact(t);
-              if (partial) setLiveHtml(partial.html);
+              pendingUpdate = msg;
+              const since = Date.now() - lastFlush;
+              if (since >= UPDATE_MS) flushUpdate();
+              else if (!updateTimer) updateTimer = setTimeout(flushUpdate, UPDATE_MS - since);
               break;
             }
             case "message_end": {
+              flushUpdate();
               const msg = event.message as Message;
               if (msg.role === "assistant") {
                 const id = ensureAssistant();
@@ -194,6 +217,7 @@ export function useAgent(prepare: PrepareModel): UseAgentResult {
               break;
             }
             case "tool_execution_start": {
+              flushUpdate();
               console.debug(`[pi] 🔧 ${event.toolName}(`, event.args, ")");
               setMessages((prev) => [
                 ...prev,
@@ -274,6 +298,7 @@ export function useAgent(prepare: PrepareModel): UseAgentResult {
           { id: nextId(), kind: "assistant", text: "", thinking: "", streaming: false, error: message },
         ]);
       } finally {
+        if (updateTimer) clearTimeout(updateTimer);
         setRunning(false);
         abortRef.current = null;
         assistantIdRef.current = null;

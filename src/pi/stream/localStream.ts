@@ -208,19 +208,21 @@ export function localStream(
 
     try {
       console.debug(`[pi] chat start — ${messages.length} messages, ~${promptTokens} prompt tokens`);
-      // Full context dump so you can see exactly what the model receives.
-      // Expand "[pi] context" in the console; also on window.__piContext.
-      // eslint-disable-next-line no-console
-      console.groupCollapsed(`[pi] context → ${messages.length} msgs, ~${promptTokens} tokens (click to expand)`);
-      for (const m of messages) {
+      // Full context dump (dev builds only — serializing the whole transcript
+      // to the console every turn is not free in production).
+      if (import.meta.env.DEV) {
         // eslint-disable-next-line no-console
-        console.log(`%c──[${m.role}]──`, "color:#7c5cff;font-weight:bold");
+        console.groupCollapsed(`[pi] context → ${messages.length} msgs, ~${promptTokens} tokens (click to expand)`);
+        for (const m of messages) {
+          // eslint-disable-next-line no-console
+          console.log(`%c──[${m.role}]──`, "color:#7c5cff;font-weight:bold");
+          // eslint-disable-next-line no-console
+          console.log(m.content);
+        }
         // eslint-disable-next-line no-console
-        console.log(m.content);
+        console.groupEnd();
+        (globalThis as any).__piContext = messages;
       }
-      // eslint-disable-next-line no-console
-      console.groupEnd();
-      (globalThis as any).__piContext = messages;
       const reasoning = (model as unknown as Record<string, unknown>)[REASONING_OPTS] as ReasoningOpts | undefined;
       const finalText = await engine.chat(
         messages.map((m) => ({ id: "", role: m.role, content: m.content, ts: 0 })),

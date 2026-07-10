@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import type { UiMessage } from "../pi/useAgent";
 import type { EngineState } from "../App";
 import { renderMarkdown } from "../lib/parse";
@@ -125,7 +125,12 @@ export function AgentChat({ messages, running, eng, onSend, onStop }: Props) {
   );
 }
 
-function MessageView({ m }: { m: UiMessage }) {
+/**
+ * Memoized: `useAgent` only replaces the object of the message that changed,
+ * so during streaming every OTHER bubble (and its markdown parse) is skipped.
+ * Without this, each token re-rendered and re-parsed the whole transcript.
+ */
+const MessageView = memo(function MessageView({ m }: { m: UiMessage }) {
   if (m.kind === "user") {
     return (
       <div className="flex justify-end">
@@ -137,7 +142,7 @@ function MessageView({ m }: { m: UiMessage }) {
   }
   if (m.kind === "tool") return <ToolCard m={m} />;
   return <AssistantView m={m} />;
-}
+});
 
 function AssistantView({ m }: { m: Extract<UiMessage, { kind: "assistant" }> }) {
   // Reasoning is shown live while streaming, then auto-collapses; a click pins it.

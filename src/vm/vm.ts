@@ -13,7 +13,11 @@
  */
 import type { FsBackend } from "../pi/fs/backend";
 
-export type VmPhase = "off" | "booting" | "ready" | "error";
+export type VmPhase = "off" | "booting" | "ready" | "suspended" | "error";
+
+/** Suspend the emulator after this long without a bash call — an idle VM still
+ *  ticks the guest kernel timer on the main thread otherwise. */
+const IDLE_SUSPEND_MS = 60_000;
 
 export interface VmExecResult {
   output: string;
@@ -37,6 +41,8 @@ class BrowserVm {
   private execSeq = 0;
   private execChain: Promise<unknown> = Promise.resolve();
   private listeners = new Set<Listener>();
+  private lastUsed = 0;
+  private idleTimer: ReturnType<typeof setInterval> | null = null;
 
   onChange(fn: Listener): () => void {
     this.listeners.add(fn);
@@ -84,7 +90,30 @@ class BrowserVm {
     await this.waitSerial(/(~% |\/ # |# )/, 120_000, 0);
     // Quieten the shell and prepare the workspace mount point.
     await this.rawExec("stty -echo; mkdir -p /mnt/workspace", 10_000);
+    this.lastUsed = Date.now();
     this.setPhase("ready");
+    // An idle emulator still ticks the guest kernel timer on the main thread —
+    // pause it when bash hasn't been used for a while; exec() resumes it.
+    this.idleTimer ??= setInterval(() => {
+      if (this.phase === "ready" && Date.now() - this.lastUsed > IDLE_SUSPEND_MS) {
+        try {
+          this.emulator.stop();
+          this.setPhase("suspended");
+        } catch {
+          /* keep running */
+        }
+      }
+    }, 10_000);
+  }
+
+  /** Resume a suspended emulator before running anything. */
+  private async ensureRunning(): Promise<void> {
+    await this.boot();
+    if (this.phase === "suspended") {
+      await this.emulator.run();
+      this.setPhase("ready");
+    }
+    this.lastUsed = Date.now();
   }
 
   private waitSerial(re: RegExp, timeoutMs: number, from: number): Promise<void> {
@@ -125,12 +154,13 @@ class BrowserVm {
    */
   exec(fs: FsBackend, workspaceRoot: string, script: string, timeoutMs = 30_000): Promise<VmExecResult> {
     const run = async (): Promise<VmExecResult> => {
-      await this.boot();
+      await this.ensureRunning();
       await this.syncIn(fs, workspaceRoot);
       // Script goes through 9p — immune to quoting/newline issues on serial.
       await this.emulator.create_file(".cmd.sh", new TextEncoder().encode(script + "\n"));
       const result = await this.rawExec(`cd ${GUEST_WORKSPACE} && sh /mnt/.cmd.sh`, timeoutMs);
       await this.syncOut(fs, workspaceRoot);
+      this.lastUsed = Date.now();
       if (result.output.length > MAX_OUTPUT) {
         result.output = result.output.slice(0, MAX_OUTPUT) + `\n[output truncated at ${MAX_OUTPUT / 1024}KB]`;
       }
